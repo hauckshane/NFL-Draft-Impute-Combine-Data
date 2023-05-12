@@ -1,0 +1,638 @@
+"","year","player","position","age","AV","school","GRADE","DRAFTED BY","PK(OVR)","OVR RANK"
+"1",2004,"bernard berrian","WR",23,35,"Fresno State",78,"Chicago","15(78)",72
+"2",2004,"drew carter","WR",22,8,"Ohio State",54,"Carolina","31(163)",198
+"3",2004,"michael clayton","WR",21,24,"LSU",92,NA,NA,23
+"4",2004,"keary colbert","WR",21,15,"USC",83,"Carolina","30(62)",55
+"5",2004,"terrance copper","WR",21,11,"East Carolina",55,NA,NA,193
+"6",2004,"jerricho cotchery","WR",21,62,"North Carolina State",61,"NY Jets","12(108)",153
+"7",2004,"devard darling","WR",21,4,"Washington State",70,"Baltimore","19(82)",101
+"8",2004,"lee evans","WR",22,54,"Wisconsin",94,NA,NA,18
+"9",2004,"larry fitzgerald","WR",20,138,"Pittsburgh",99,"Arizona","3(3)",1
+"10",2004,"carlos francis","WR",23,0,"Texas Tech",50,"Las Vegas","3(99)",217
+"11",2004,"d j  hackett","WR",22,15,"Colorado",57,"Seattle","25(157)",182
+"12",2004,"derrick hamilton","WR",22,0,"Clemson",76,"San Francisco","14(77)",83
+"13",2004,"devery henderson","WR",21,41,"LSU",86,"New Orleans","18(50)",44
+"14",2004,"justin jenkins","WR",23,0,"Mississippi State",58,NA,NA,173
+"15",2004,"michael jenkins","WR",21,46,"Ohio State",90,NA,NA,28
+"16",2004,"kelvin kight","WR",21,0,"Florida",33,NA,NA,347
+"17",2004,"ryan krause","WR",22,1,"Nebraska-Omaha",31,"Los Angeles","4(169)",373
+"18",2004,"triandos luke","WR",22,0,"Alabama",67,"Denver","6(171)",121
+"19",2004,"maurice mann","WR",21,0,"Nevada",66,"Cincinnati","17(149)",127
+"20",2004,"clarence moore","WR",21,2,"Northern Arizona",47,"Baltimore","34(199)",244
+"21",2004,"johnnie morant","WR",22,0,"Syracuse",72,"Las Vegas","2(134)",93
+"22",2004,"samie parker","WR",22,14,"Oregon",62,"Kansas City","9(105)",149
+"23",2004,"p k  sam","WR",20,0,"Florida State",79,"New England","32(164)",68
+"24",2004,"jonathan smith","WR",22,2,"Georgia Tech",NA,NA,NA,NA
+"25",2004,"john standeford","WR",21,2,"Purdue",41,NA,NA,283
+"26",2004,"kendrick starling","WR",24,0,"San Jose State",49,NA,NA,226
+"27",2004,"jamaar taylor","WR",23,1,"Texas A&M",51,"NY Giants","3(168)",212
+"28",2004,"sloan thomas","WR",22,0,"Texas",32,"Houston","10(211)",359
+"29",2004,"andrae thurman","WR",23,1,"Arizona",48,NA,NA,235
+"30",2004,"darius watts","WR",22,4,"Marshall",69,"Denver","22(54)",109
+"31",2004,"ernest wilford","WR",25,23,"Virginia Tech",75,"Jacksonville","24(120)",86
+"32",2004,"reggie williams","WR",20,25,"Washington",95,NA,NA,16
+"33",2004,"roy williams","WR",22,49,"Texas",98,NA,NA,6
+"34",2004,"george wilson","WR",22,30,"Arkansas",40,NA,NA,289
+"35",2004,"rashaun woods","WR",23,1,"Oklahoma State",89,"San Francisco","31(31)",29
+"36",2004,"kevin youngblood","WR",23,0,"Clemson",36,NA,NA,323
+"37",2005,"mark bradley","WR",23,11,"Oklahoma",74,"Chicago","7(39)",91
+"38",2005,"reggie brown","WR",24,21,"Georgia",88,"Philadelphia","3(35)",37
+"39",2005,"mark clayton","WR",22,31,"Oklahoma",91,"Baltimore","22(22)",25
+"40",2005,"airese currie","WR",22,0,"Clemson",48,"Chicago","4(140)",241
+"41",2005,"braylon edwards","WR",22,46,"Michigan",99,"Cleveland","3(3)",1
+"42",2005,"chris henry","WR",21,17,"West Virginia",85,"Cincinnati","19(83)",53
+"43",2005,"vincent jackson","WR",22,93,"Northern Colorado",71,"Los Angeles","29(61)",100
+"44",2005,"brandon jones","WR",22,12,"Oklahoma",55,"Tennessee","32(96)",198
+"45",2005,"rasheed marshall","WR",23,0,"West Virginia",49,"San Francisco","38(174)",233
+"46",2005,"jerome mathis","WR",21,4,"Kansas State",82,"Houston","13(114)",62
+"47",2005,"leron mccoy","WR",23,1,"Indiana (PA)",59,"Arizona","12(226)",177
+"48",2005,"lance moore","WR",21,44,"Toledo",45,NA,NA,258
+"49",2005,"terrence murphy","WR",22,0,"Texas A&M",79,"Green Bay","26(58)",71
+"50",2005,"chad owens","WR",22,0,"Hawaii",58,"Jacksonville","11(185)",182
+"51",2005,"roscoe parrish","WR",22,15,"Miami (FL)",86,"Buffalo","23(55)",49
+"52",2005,"tab perry","WR",23,1,"UCLA",52,"Cincinnati","16(190)",215
+"53",2005,"jamaica rector","WR",23,0,"Northwest Missouri State",43,NA,NA,267
+"54",2005,"courtney roby","WR",22,4,"Indiana",77,"Tennessee","4(68)",84
+"55",2005,"craphonso thorpe","WR",21,1,"Florida State",66,"Kansas City","15(116)",133
+"56",2005,"paris warren","WR",22,0,"Utah",40,"Tampa Bay","11(225)",280
+"57",2005,"roddy white","WR",23,107,"Ala-Birmingham",90,"Atlanta","27(27)",27
+"58",2005,"mike williams","WR",21,13,"USC",97,NA,NA,7
+"59",2005,"troy williamson","WR",21,8,"South Carolina",94,"Minnesota","7(7)",16
+"60",2006,"david anderson","WR",22,8,"Colorado State",NA,NA,NA,NA
+"61",2006,"devin aromashodu","WR",21,11,"Auburn",65,"Miami","25(233)",126
+"62",2006,"miles austin","WR",21,42,"Monmouth (NJ)",NA,NA,NA,NA
+"63",2006,"jason avant","WR",22,35,"Michigan",73,"Philadelphia","12(109)",90
+"64",2006,"hank baskett","WR",23,9,"New Mexico",NA,NA,NA,NA
+"65",2006,"jason carter","WR",23,0,"Texas A&M",NA,NA,NA,NA
+"66",2006,"marques colston","WR",22,89,"Hofstra",NA,NA,NA,NA
+"67",2006,"skyler green","WR",21,0,"LSU",NA,NA,NA,NA
+"68",2006,"derek hagan","WR",21,14,"Arizona State",75,"Miami","18(82)",82
+"69",2006,"mike hass","WR",23,0,"Oregon State",63,"New Orleans","2(171)",139
+"70",2006,"devin hester","WR",23,55,"Miami (FL)",NA,NA,NA,NA
+"71",2006,"santonio holmes","WR",22,54,"Ohio State",95,"Pittsburgh","25(25)",16
+"72",2006,"chad jackson","WR",21,2,"Florida",96,"New England","4(36)",15
+"73",2006,"adam jennings","WR",23,0,"Fresno State",NA,NA,NA,NA
+"74",2006,"greg jennings","WR",22,78,"West. Michigan",80,"Green Bay","20(52)",68
+"75",2006,"brandon marshall","WR",21,103,"Central Florida",70,NA,NA,107
+"76",2006,"anthony mix","WR",23,0,"Auburn",NA,NA,NA,NA
+"77",2006,"sinorice moss","WR",22,4,"Miami (FL)",90,"NY Giants","12(44)",31
+"78",2006,"martin nance","WR",22,0,"Miami (OH)",NA,NA,NA,NA
+"79",2006,"ben obomanu","WR",22,10,"Auburn",NA,NA,NA,NA
+"80",2006,"willie reid","WR",23,1,"Florida State",64,"Pittsburgh","31(95)",128
+"81",2006,"michael robinson","WR",23,8,"Penn State",NA,NA,NA,NA
+"82",2006,"brad smith","WR",22,20,"Missouri",NA,NA,NA,NA
+"83",2006,"maurice stovall","WR",21,5,"Notre Dame",84,"Tampa Bay","26(90)",57
+"84",2006,"delanie walker","WR",21,47,"Central Missouri State",NA,NA,NA,NA
+"85",2006,"todd watkins","WR",22,1,"BYU",61,"Arizona","10(218)",147
+"86",2006,"jeff webb","WR",24,2,"San Diego State",NA,NA,NA,NA
+"87",2006,"brandon williams","WR",22,0,"Wisconsin",72,"San Francisco","20(84)",93
+"88",2006,"demetrius williams","WR",22,9,"Oregon",86,"Baltimore","14(111)",45
+"89",2006,"travis wilson","WR",22,0,"Oklahoma",79,"Cleveland","14(78)",73
+"90",2007,"aundrae allison","WR",20,3,"East Carolina",77,NA,NA,72
+"91",2007,"dallas baker","WR",24,0,"Florida",51,"Pittsburgh","17(227)",191
+"92",2007,"dwayne bowe","WR",22,58,"LSU",94,NA,NA,15
+"93",2007,"steve breaston","WR",23,28,"Michigan",52,"Arizona","5(142)",185
+"94",2007,"david clowney","WR",21,3,"Virginia Tech",71,"Green Bay","20(157)",102
+"95",2007,"buster davis","WR",23,2,"Florida State",NA,NA,NA,NA
+"96",2007,"chris davis","WR",23,0,"Florida State",60,"Tennessee","29(128)",149
+"97",2007,"yamon figurs","WR",24,2,"Kansas State",47,"Baltimore","10(74)",204
+"98",2007,"ted ginn","WR",21,65,"Ohio State",NA,NA,NA,NA
+"99",2007,"anthony gonzalez","WR",22,16,"Ohio State",88,"Indianapolis","32(32)",37
+"100",2007,"johnnie lee higgins","WR",23,9,"Texas-El Paso",65,"Las Vegas","35(99)",131
+"101",2007,"jason hill","WR",22,10,"Washington State",79,"San Francisco","12(76)",68
+"102",2007,"jonathan holland","WR",22,1,"Louisiana Tech",NA,NA,NA,NA
+"103",2007,"dwayne jarrett","WR",20,4,"USC",89,"Carolina","13(45)",34
+"104",2007,"calvin johnson","WR",21,94,"Georgia Tech",99,"Detroit","2(2)",1
+"105",2007,"jacoby jones","WR",22,34,"Lane (TN)",74,"Houston","9(73)",86
+"106",2007,"james jones","WR",22,55,"San Jose State",48,"Green Bay","14(78)",203
+"107",2007,"onrea jones","WR",23,0,"Kansas State",NA,NA,NA,NA
+"108",2007,"jordan kent","WR",22,0,"Oregon",31,"Seattle","36(210)",303
+"109",2007,"robert meachem","WR",22,29,"Tennessee",92,"New Orleans","27(27)",20
+"110",2007,"legedu naanee","WR",23,14,"Boise State",37,"Los Angeles","35(172)",256
+"111",2007,"sidney rice","WR",20,36,"South Carolina",85,"Minnesota","12(44)",47
+"112",2007,"laurent robinson","WR",21,17,"Illinois State",67,"Atlanta","11(75)",119
+"113",2007,"ryne robinson","WR",22,0,"Miami (OH)",46,"Carolina","19(118)",214
+"114",2007,"steve smith","WR",21,24,"USC",87,"NY Giants","19(51)",40
+"115",2007,"syndric steptoe","WR",22,1,"Arizona",31,"Cleveland","24(234)",289
+"116",2007,"chansi stuckey","WR",23,10,"Clemson",58,"NY Jets","25(235)",163
+"117",2007,"courtney taylor","WR",22,1,"Auburn",66,"Seattle","23(197)",125
+"118",2007,"mike sims-walker","WR",22,17,"Central Florida",NA,NA,NA,NA
+"119",2007,"paul williams","WR",23,0,"Fresno State",63,"Tennessee","16(80)",139
+"120",2007,"d'juan woods","WR",22,0,"Oklahoma State",NA,NA,NA,NA
+"121",2008,"danny amendola","WR",22,54,"Texas Tech",NA,NA,NA,NA
+"122",2008,"adrian arrington","WR",22,1,"Michigan",NA,NA,NA,NA
+"123",2008,"donnie avery","WR",23,23,"Houston",68,"Los Angeles","2(33)",109
+"124",2008,"earl bennett","WR",20,20,"Vanderbilt",71,"Chicago","7(70)",96
+"125",2008,"davone bess","WR",22,30,"Hawaii",NA,NA,NA,NA
+"126",2008,"keenan burton","WR",23,3,"Kentucky",66,"Los Angeles","29(128)",120
+"127",2008,"andre caldwell","WR",22,13,"Florida",78,"Cincinnati","34(97)",73
+"128",2008,"early doucet","WR",22,11,"LSU",79,"Arizona","18(81)",71
+"129",2008,"harry douglas","WR",23,36,"Louisville",59,"Atlanta","21(84)",148
+"130",2008,"will franklin","WR",22,1,"Missouri",63,"Kansas City","6(105)",128
+"131",2008,"pierre garcon","WR",21,66,"Mount Union",NA,NA,NA,NA
+"132",2008,"james hardy","WR",22,1,"Indiana",88,"Buffalo","10(41)",34
+"133",2008,"justin harper","WR",23,0,"Virginia Tech",NA,NA,NA,NA
+"134",2008,"lavelle hawkins","WR",21,7,"California",60,"Tennessee","27(126)",142
+"135",2008,"marcus henry","WR",22,0,"Kansas",NA,NA,NA,NA
+"136",2008,"paul hubbard","WR",22,0,"Wisconsin",65,"Cleveland","25(191)",123
+"137",2008,"desean jackson","WR",21,98,"California",90,"Philadelphia","18(49)",26
+"138",2008,"dexter jackson","WR",21,0,"Appalachian State",74,"Tampa Bay","27(58)",88
+"139",2008,"darnell jenkins","WR",25,0,"Miami (FL)",NA,NA,NA,NA
+"140",2008,"jaymar johnson","WR",23,0,"Jackson State",NA,NA,NA,NA
+"141",2008,"malcolm kelly","WR",21,3,"Oklahoma",89,"Washington","20(51)",28
+"142",2008,"mario manningham","WR",21,24,"Michigan",83,"NY Giants","32(95)",53
+"143",2008,"marcus monk","WR",21,0,"Arkansas",NA,NA,NA,NA
+"144",2008,"kenneth moore","WR",23,1,"Wake Forest",NA,NA,NA,NA
+"145",2008,"josh morgan","WR",22,23,"Virginia Tech",62,"San Francisco","8(174)",133
+"146",2008,"jordy nelson","WR",22,85,"Kansas State",86,"Green Bay","5(36)",47
+"147",2008,"maurice purify","WR",22,0,"Nebraska",NA,NA,NA,NA
+"148",2008,"darius reynaud","WR",23,3,"West Virginia",NA,NA,NA,NA
+"149",2008,"kevin robinson","WR",23,0,"Utah State",NA,NA,NA,NA
+"150",2008,"eddie royal","WR",21,40,"Virginia Tech",80,"Denver","11(42)",69
+"151",2008,"arman shields","WR",22,0,"Richmond",NA,NA,NA,NA
+"152",2008,"jerome simpson","WR",22,19,"Coastal Carolina",77,"Cincinnati","15(46)",76
+"153",2008,"marcus smith","WR",23,0,"New Mexico",NA,NA,NA,NA
+"154",2008,"taj smith","WR",24,0,"Syracuse",NA,NA,NA,NA
+"155",2008,"limas sweed","WR",23,1,"Texas",92,"Pittsburgh","22(53)",22
+"156",2008,"devin thomas","WR",21,4,"Michigan State",91,"Washington","3(34)",24
+"157",2008,"mario urrutia","WR",22,0,"Louisville",NA,NA,NA,NA
+"158",2009,"ramses barden","WR",23,5,"Cal Poly",63,"NY Giants","21(85)",126
+"159",2009,"kenny britt","WR",20,40,"Rutgers",88,"Tennessee","30(30)",34
+"160",2009,"deon butler","WR",23,4,"Penn State",62,"Seattle","27(91)",127
+"161",2009,"austin collie","WR",23,19,"BYU",60,"Indianapolis","27(127)",134
+"162",2009,"quan cosby","WR",26,0,"Texas",49,NA,NA,202
+"163",2009,"michael crabtree","WR",21,65,"Texas Tech",96,"San Francisco","10(10)",3
+"164",2009,"jarett dillard","WR",23,4,"Rice",53,"Jacksonville","8(144)",178
+"165",2009,"dominique edison","WR",22,0,"Stephen F. Austin",NA,NA,NA,NA
+"166",2009,"brooks foster","WR",22,0,"North Carolina",59,"Los Angeles","24(160)",144
+"167",2009,"brandon gibson","WR",21,19,"Washington State",50,"Philadelphia","21(194)",194
+"168",2009,"brian hartline","WR",22,36,"Ohio State",NA,NA,NA,NA
+"169",2009,"percy harvin","WR",20,48,"Florida",89,"Minnesota","22(22)",27
+"170",2009,"darrius heyward-bey","WR",22,26,"Maryland",NA,NA,NA,NA
+"171",2009,"juaquin iglesias","WR",21,0,"Oklahoma",66,"Chicago","35(99)",111
+"172",2009,"manuel johnson","WR",22,0,"Oklahoma",NA,NA,NA,NA
+"173",2009,"johnny knox","WR",22,21,"Abilene Christian",65,"Chicago","4(140)",115
+"174",2009,"quinten lawrence","WR",24,0,"McNeese State",43,"Kansas City","2(175)",237
+"175",2009,"jeremy maclin","WR",20,58,"Missouri",95,"Philadelphia","19(19)",11
+"176",2009,"mohamed massaquoi","WR",22,12,"Georgia",83,"Cleveland","18(50)",53
+"177",2009,"kenny mckinley","WR",22,0,"South Carolina",54,"Denver","5(141)",173
+"178",2009,"marko mitchell","WR",23,0,"Nevada",NA,NA,NA,NA
+"179",2009,"louis murphy","WR",21,21,"Florida",68,"Las Vegas","24(124)",106
+"180",2009,"hakeem nicks","WR",21,44,"North Carolina",91,"NY Giants","29(29)",22
+"181",2009,"jordan norwood","WR",22,6,"Penn State",NA,NA,NA,NA
+"182",2009,"kevin ogletree","WR",21,9,"Virginia",48,NA,NA,210
+"183",2009,"brian robiskie","WR",21,3,"Ohio State",77,"Cleveland","4(36)",72
+"184",2009,"sammie stroughter","WR",23,5,"Oregon State",51,"Tampa Bay","24(233)",188
+"185",2009,"brandon tate","WR",21,17,"North Carolina",73,"New England","19(83)",84
+"186",2009,"mike thomas","WR",21,22,"Arizona",71,"Jacksonville","7(107)",89
+"187",2009,"patrick turner","WR",21,1,"USC",NA,NA,NA,NA
+"188",2009,"tiquan underwood","WR",22,9,"Rutgers",46,"Jacksonville","44(253)",223
+"189",2009,"mike wallace","WR",22,69,"Mississippi",58,"Pittsburgh","20(84)",152
+"190",2009,"derrick williams","WR",22,0,"Penn State",78,"Detroit","18(82)",71
+"191",2010,"seyi ajirotutu","WR",22,4,"Fresno State",NA,NA,NA,NA
+"192",2010,"danario alexander","WR",23,9,"Missouri",NA,NA,NA,NA
+"193",2010,"brandon banks","WR",22,1,"Kansas State",NA,NA,NA,NA
+"194",2010,"arrelious benn","WR",21,8,"Illinois",88,"Tampa Bay","7(39)",39
+"195",2010,"dezmon briscoe","WR",20,4,"Kansas",NA,NA,NA,NA
+"196",2010,"antonio brown","WR",21,112,"Central Michigan",NA,NA,NA,NA
+"197",2010,"dez bryant","WR",21,71,"Oklahoma State",94,"Dallas","24(24)",11
+"198",2010,"chris carter","WR",20,7,"California-Davis",NA,NA,NA,NA
+"199",2010,"riley cooper","WR",22,18,"Florida",NA,NA,NA,NA
+"200",2010,"eric decker","WR",22,50,"Minnesota",80,"Denver","23(87)",59
+"201",2010,"marcus easley","WR",22,1,"Connecticut",NA,NA,NA,NA
+"202",2010,"armanti edwards","WR",21,1,"Appalachian State",NA,NA,NA,NA
+"203",2010,"jacoby ford","WR",22,12,"Clemson",NA,NA,NA,NA
+"204",2010,"david gettis","WR",22,3,"Baylor",NA,NA,NA,NA
+"205",2010,"mardy gilyard","WR",23,1,"Cincinnati",NA,NA,NA,NA
+"206",2010,"trindon holliday","WR",23,4,"LSU",NA,NA,NA,NA
+"207",2010,"donald jones","WR",22,8,"Youngstown State",NA,NA,NA,NA
+"208",2010,"brandon lafell","WR",23,50,"LSU",77,NA,NA,69
+"209",2010,"dexter mccluster","WR",20,23,"Mississippi",NA,NA,NA,NA
+"210",2010,"kerry meier","WR",23,0,"Kansas",NA,NA,NA,NA
+"211",2010,"carlton mitchell","WR",21,0,"South Florida",74,"Cleveland","8(177)",80
+"212",2010,"preston parker","WR",23,7,"Florida State",NA,NA,NA,NA
+"213",2010,"taylor price","WR",22,1,"Ohio",78,"New England","26(90)",63
+"214",2010,"david reed","WR",22,2,"Utah",74,"Baltimore","25(156)",78
+"215",2010,"andre roberts","WR",22,28,"Citadel",74,"Arizona","24(88)",83
+"216",2010,"emmanuel sanders","WR",22,79,"SMU",72,"Pittsburgh","18(82)",93
+"217",2010,"jordan shipley","WR",24,7,"Texas",71,"Cincinnati","20(84)",97
+"218",2010,"golden tate","WR",21,72,"Notre Dame",84,"Seattle","28(60)",51
+"219",2010,"demaryius thomas","WR",22,81,"Georgia Tech",92,"Denver","22(22)",23
+"220",2010,"verran tucker","WR",21,1,"California",NA,NA,NA,NA
+"221",2010,"chastin west","WR",22,1,"Fresno State",NA,NA,NA,NA
+"222",2010,"blair white","WR",23,3,"Michigan State",NA,NA,NA,NA
+"223",2010,"damian williams","WR",21,11,"USC",82,"Tennessee","13(77)",55
+"224",2010,"kyle williams","WR",21,6,"Arizona State",NA,NA,NA,NA
+"225",2010,"mike williams","WR",22,27,"Syracuse",NA,NA,NA,NA
+"226",2010,"stephen williams","WR",23,1,"Toledo",NA,NA,NA,NA
+"227",2011,"darvin adams","WR",21,0,"Auburn",62,NA,NA,141
+"228",2011,"jon baldwin","WR",21,4,"Pittsburgh",NA,NA,NA,NA
+"229",2011,"armon binns","WR",21,3,"Cincinnati",43,NA,NA,228
+"230",2011,"vincent brown","WR",22,9,"San Diego State",74,"Los Angeles","18(82)",92
+"231",2011,"stephen burton","WR",21,0,"West Texas A&M",39,"Minnesota","33(236)",252
+"232",2011,"randall cobb","WR",20,80,"Kentucky",84,"Green Bay","32(64)",47
+"233",2011,"tandon doss","WR",21,4,"Indiana",80,"Baltimore","26(123)",63
+"234",2011,"clyde gates","WR",24,3,"Abilene Christian",NA,NA,NA,NA
+"235",2011,"a j  green","WR",22,95,"Georgia",97,"Cincinnati","4(4)",3
+"236",2011,"tori gurley","WR",23,0,"South Carolina",41,NA,NA,236
+"237",2011,"leonard hankerson","WR",22,12,"Miami (FL)",79,"Washington","15(79)",67
+"238",2011,"dwayne harris","WR",23,13,"East Carolina",69,"Dallas","11(176)",112
+"239",2011,"andre holmes","WR",22,13,"Hillsdale",NA,NA,NA,NA
+"240",2011,"lestar jean","WR",23,1,"Florida Atlantic",NA,NA,NA,NA
+"241",2011,"jerrel jernigan","WR",21,2,"Troy",78,"NY Giants","19(83)",74
+"242",2011,"ronald johnson","WR",22,0,"USC",50,"San Francisco","17(182)",190
+"243",2011,"julio jones","WR",22,125,"Alabama",95,"Atlanta","6(6)",7
+"244",2011,"jeremy kerley","WR",22,26,"TCU",63,"NY Jets","22(153)",140
+"245",2011,"greg little","WR",21,13,"North Carolina",81,"Cleveland","27(59)",58
+"246",2011,"ricardo lockette","WR",24,5,"Fort Valley State",56,NA,NA,171
+"247",2011,"jeff maehl","WR",21,1,"Oregon",NA,NA,NA,NA
+"248",2011,"denarius moore","WR",22,16,"Tennessee",46,"Las Vegas","17(148)",211
+"249",2011,"jamar newsome","WR",23,0,"Central Florida",NA,NA,NA,NA
+"250",2011,"niles paul","WR",21,7,"Nebraska",67,"Washington","24(155)",117
+"251",2011,"austin pettis","WR",22,8,"Boise State",70,"Los Angeles","14(78)",111
+"252",2011,"kealoha pilares","WR",23,1,"Hawaii",47,"Carolina","1(132)",206
+"253",2011,"aldrick robinson","WR",22,13,"SMU",57,"Washington","13(178)",166
+"254",2011,"greg salas","WR",22,4,"Hawaii",NA,NA,NA,NA
+"255",2011,"demarco sampson","WR",25,0,"San Diego State",NA,NA,NA,NA
+"256",2011,"dane sanzenbacher","WR",22,4,"Ohio State",54,NA,NA,178
+"257",2011,"cecil shorts","WR",23,20,"Mount Union",65,"Jacksonville","17(114)",129
+"258",2011,"keith smith","WR",18,9,"San Jose State",NA,NA,NA,NA
+"259",2011,"torrey smith","WR",22,42,"Maryland",82,"Baltimore","26(58)",53
+"260",2011,"ryan whalen","WR",21,0,"Stanford",45,"Cincinnati","2(167)",215
+"261",2011,"titus young","WR",21,8,"Boise State",83,"Detroit","12(44)",49
+"262",2012,"joe adams","WR",22,0,"Arkansas",76,"Carolina","9(104)",78
+"263",2012,"travis benjamin","WR",22,28,"Miami (FL)",52,"Cleveland","5(100)",174
+"264",2012,"justin blackmon","WR",22,9,"Oklahoma State",95,"Jacksonville","5(5)",9
+"265",2012,"jarrett boykin","WR",22,6,"Virginia Tech",NA,NA,NA,NA
+"266",2012,"lavon brazill","WR",22,3,"Ohio",56,"Indianapolis","36(206)",161
+"267",2012,"ryan broyles","WR",23,3,"Oklahoma",70,"Detroit","22(54)",98
+"268",2012,"greg childs","WR",21,0,"Arkansas",44,"Minnesota","39(134)",207
+"269",2012,"danny coale","WR",23,0,"Virginia Tech",59,"Dallas","17(152)",152
+"270",2012,"josh cooper","WR",23,1,"Oklahoma State",NA,NA,NA,NA
+"271",2012,"juron criner","WR",22,1,"Arizona",54,"Las Vegas","33(168)",169
+"272",2012,"b j  cunningham","WR",22,0,"Michigan State",50,"Miami","13(183)",185
+"273",2012,"patrick edwards","WR",23,0,"Houston",NA,NA,NA,NA
+"274",2012,"michael floyd","WR",22,31,"Notre Dame",93,"Arizona","13(13)",15
+"275",2012,"chris givens","WR",22,13,"Wake Forest",74,"Los Angeles","1(96)",82
+"276",2012,"t j  graham","WR",22,7,"North Carolina State",60,"Buffalo","6(69)",146
+"277",2012,"junior hemingway","WR",23,2,"Michigan",36,"Kansas City","31(238)",249
+"278",2012,"stephen hill","WR",20,4,"Georgia Tech",90,"NY Jets","11(43)",27
+"279",2012,"t y  hilton","WR",22,87,"Florida International",75,"Indianapolis","29(92)",79
+"280",2012,"jerrell jackson","WR",22,0,"Missouri",NA,NA,NA,NA
+"281",2012,"alshon jeffery","WR",22,55,"South Carolina",83,"Chicago","13(45)",59
+"282",2012,"a j  jenkins","WR",22,2,"Illinois",82,"San Francisco","30(30)",62
+"283",2012,"marvin jones","WR",21,64,"California",67,"Cincinnati","31(166)",115
+"284",2012,"jermaine kearse","WR",22,30,"Washington",39,NA,NA,233
+"285",2012,"keshawn martin","WR",21,7,"Michigan State",69,"Houston","26(121)",105
+"286",2012,"rishard matthews","WR",22,24,"Nevada",55,"Miami","20(227)",164
+"287",2012,"marvin mcnutt","WR",22,0,"Iowa",65,"Philadelphia","24(194)",121
+"288",2012,"derek moye","WR",23,0,"Penn State",NA,NA,NA,NA
+"289",2012,"chris owusu","WR",22,3,"Stanford",41,NA,NA,223
+"290",2012,"eric page","WR",20,1,"Toledo",NA,NA,NA,NA
+"291",2012,"devier posey","WR",21,2,"Ohio State",57,"Houston","5(68)",159
+"292",2012,"brian quick","WR",22,12,"Appalachian State",79,"Los Angeles","1(33)",68
+"293",2012,"rueben randle","WR",20,22,"LSU",88,"NY Giants","31(63)",37
+"294",2012,"mohamed sanu","WR",22,49,"Rutgers",68,"Cincinnati","20(83)",109
+"295",2012,"tommy streeter","WR",22,0,"Miami (FL)",62,"Baltimore","28(198)",137
+"296",2012,"nick toon","WR",23,3,"Wisconsin",71,"New Orleans","27(122)",93
+"297",2012,"jordan white","WR",23,0,"West. Michigan",35,"NY Jets","37(244)",252
+"298",2012,"jarius wright","WR",22,27,"Arkansas",64,"Minnesota","23(118)",125
+"299",2012,"kendall wright","WR",22,31,"Baylor",89,"Tennessee","20(20)",28
+"300",2012,"devon wylie","WR",23,0,"Fresno State",48,"Kansas City","12(107)",192
+"301",2013,"keenan allen","WR",20,80,"California",88,"Los Angeles","14(76)",38
+"302",2013,"tavon austin","WR",22,29,"West Virginia",93,"Los Angeles","8(8)",12
+"303",2013,"stedman bailey","WR",22,7,"West Virginia",77,"Los Angeles","30(92)",75
+"304",2013,"alan bonner","WR",22,0,"Jacksonville State",53,"Houston","27(195)",188
+"305",2013,"josh boyce","WR",21,1,"TCU",66,"New England","5(102)",130
+"306",2013,"marlon brown","WR",21,6,"Georgia",NA,NA,NA,NA
+"307",2013,"aaron dobson","WR",21,6,"Marshall",80,"New England","27(59)",62
+"308",2013,"corey fuller","WR",22,3,"Virginia Tech",NA,NA,NA,NA
+"309",2013,"marquise goodwin","WR",22,26,"Texas",69,"Buffalo","16(78)",115
+"310",2013,"cobi hamilton","WR",22,2,"Arkansas",57,"Cincinnati","29(197)",166
+"311",2013,"chris harper","WR",23,0,"Kansas State",61,"Seattle","26(123)",147
+"312",2013,"deandre hopkins","WR",20,91,"Clemson",86,"Houston","27(27)",47
+"313",2013,"justin hunter","WR",21,10,"Tennessee",90,"Tennessee","2(34)",25
+"314",2013,"darius johnson","WR",22,2,"SMU",NA,NA,NA,NA
+"315",2013,"tavarres king","WR",22,2,"Georgia",60,"Denver","28(161)",151
+"316",2013,"aaron mellette","WR",23,0,"Elon",58,"Baltimore","32(238)",161
+"317",2013,"cordarrelle patterson","WR",21,48,"Tennessee",89,"Minnesota","29(29)",29
+"318",2013,"quinton patton","WR",22,6,"Louisiana Tech",82,"San Francisco","31(128)",58
+"319",2013,"denard robinson","WR",22,8,"Michigan",54,"Jacksonville","2(135)",184
+"320",2013,"da'rick rogers","WR",21,2,"Tennessee Tech",NA,NA,NA,NA
+"321",2013,"ace sanders","WR",21,3,"South Carolina",56,"Jacksonville","4(101)",171
+"322",2013,"rodney smith","WR",22,0,"Florida State",NA,NA,NA,NA
+"323",2013,"ryan spadola","WR",22,0,"Lehigh",NA,NA,NA,NA
+"324",2013,"kenny stills","WR",20,40,"Oklahoma",55,"New Orleans","11(144)",178
+"325",2013,"ryan swope","WR",22,0,"Texas A&M",67,"Arizona","6(174)",126
+"326",2013,"kenbrell thompkins","WR",24,7,"Cincinnati",NA,NA,NA,NA
+"327",2013,"markus wheaton","WR",22,13,"Oregon State",74,"Pittsburgh","17(79)",88
+"328",2013,"terrance williams","WR",23,30,"Baylor",81,"Dallas","12(74)",60
+"329",2013,"marquess wilson","WR",20,6,"Washington State",50,"Chicago","30(236)",208
+"330",2013,"robert woods","WR",20,68,"USC",88,"Buffalo","9(41)",32
+"331",2014,"jared abbrederis","WR",23,1,"Wisconsin",48,"Green Bay","36(176)",201
+"332",2014,"davante adams","WR",21,91,"Fresno State",85,"Green Bay","21(53)",44
+"333",2014,"dri archer","WR",22,0,"Kent State",NA,NA,NA,NA
+"334",2014,"odell beckham, jr ","WR",21,63,"LSU",NA,NA,NA,NA
+"335",2014,"kelvin benjamin","WR",23,23,"Florida State",75,"Carolina","28(28)",69
+"336",2014,"john brown","WR",23,40,"Pittsburg State",59,"Arizona","27(91)",137
+"337",2014,"corey brown","WR",22,11,"Ohio State",NA,NA,NA,NA
+"338",2014,"martavis bryant","WR",22,20,"Clemson",76,"Pittsburgh","18(118)",66
+"339",2014,"isaiah burse","WR",22,0,"Fresno State",40,NA,NA,250
+"340",2014,"trey burton","WR",22,13,"Florida",NA,NA,NA,NA
+"341",2014,"michael campanaro","WR",23,4,"Wake Forest",47,"Baltimore","3(218)",206
+"342",2014,"brandon coleman","WR",21,10,"Rutgers",69,NA,NA,89
+"343",2014,"brandin cooks","WR",20,78,"Oregon State",91,"New Orleans","20(20)",19
+"344",2014,"bruce ellington","WR",22,7,"South Carolina",79,"San Francisco","6(106)",58
+"345",2014,"quincy enunwa","WR",21,13,"Nebraska",39,"NY Jets","33(209)",256
+"346",2014,"mike evans","WR",20,81,"Texas A&M",94,"Tampa Bay","7(7)",7
+"347",2014,"shaquelle evans","WR",23,0,"UCLA",NA,NA,NA,NA
+"348",2014,"bennie fowler","WR",22,8,"Michigan State",33,NA,NA,300
+"349",2014,"jeremy gallon","WR",24,0,"Michigan",NA,NA,NA,NA
+"350",2014,"ryan grant","WR",23,10,"Tulane",51,"Washington","2(142)",180
+"351",2014,"matt hazel","WR",22,0,"Coastal Carolina",46,"Miami","14(190)",211
+"352",2014,"robert herron","WR",21,0,"Wyoming",67,"Tampa Bay","9(185)",103
+"353",2014,"josh huff","WR",22,6,"Oregon",60,"Philadelphia","22(86)",133
+"354",2014,"allen hurns","WR",22,25,"Miami (FL)",38,NA,NA,265
+"355",2014,"jeff janis","WR",22,2,"Saginaw Valley State",52,"Green Bay","21(236)",173
+"356",2014,"t j  jones","WR",21,7,"Notre Dame",NA,NA,NA,NA
+"357",2014,"jarvis landry","WR",21,67,"LSU",84,"Miami","31(63)",48
+"358",2014,"cody latimer","WR",21,6,"Indiana",88,"Denver","24(56)",35
+"359",2014,"marqise lee","WR",22,18,"USC",90,"Jacksonville","7(39)",24
+"360",2014,"jordan matthews","WR",21,25,"Vanderbilt",83,"Philadelphia","10(42)",49
+"361",2014,"donte moncrief","WR",20,20,"Mississippi",68,"Indianapolis","26(90)",99
+"362",2014,"kevin norwood","WR",24,1,"Alabama",66,"Seattle","23(123)",109
+"363",2014,"tevin reese","WR",23,0,"Baylor",49,"Los Angeles","25(240)",193
+"364",2014,"paul richardson","WR",21,15,"Colorado",74,"Seattle","13(45)",71
+"365",2014,"allen robinson","WR",20,53,"Penn State",78,"Jacksonville","29(61)",62
+"366",2014,"jalen saunders","WR",21,0,"Oklahoma",61,"NY Jets","4(104)",131
+"367",2014,"willie snead","WR",21,32,"Ball State",36,NA,NA,278
+"368",2014,"devin street","WR",22,1,"Pittsburgh",44,"Dallas","6(146)",222
+"369",2014,"sammy watkins","WR",20,51,"Clemson",96,"Buffalo","4(4)",4
+"370",2014,"albert wilson","WR",21,24,"Georgia State",37,NA,NA,270
+"371",2015,"nelson agholor","WR",21,37,"USC",89,"Philadelphia","20(20)",23
+"372",2015,"mario alford","WR",23,0,"West Virginia",46,"Cincinnati","21(238)",206
+"373",2015,"kenny bell","WR",23,0,"Nebraska",69,"Tampa Bay","26(162)",105
+"374",2015,"da'ron brown","WR",23,0,"Northern Illinois",NA,NA,NA,NA
+"375",2015,"kaelin clay","WR",23,3,"Utah",32,"Tampa Bay","8(184)",319
+"376",2015,"sammie coates","WR",21,4,"Auburn",77,"Pittsburgh","23(87)",72
+"377",2015,"chris conley","WR",22,24,"Georgia",61,"Kansas City","12(76)",128
+"378",2015,"amari cooper","WR",20,69,"Alabama",94,"Las Vegas","4(4)",3
+"379",2015,"jamison crowder","WR",21,36,"Duke",64,"Washington","6(105)",123
+"380",2015,"geremy davis","WR",23,0,"Connecticut",47,"NY Giants","10(186)",200
+"381",2015,"stefon diggs","WR",21,87,"Maryland",68,"Minnesota","10(146)",109
+"382",2015,"phillip dorsett","WR",22,18,"Miami (FL)",88,"Indianapolis","29(29)",27
+"383",2015,"devin funchess","WR",20,21,"Michigan",87,"Carolina","9(41)",40
+"384",2015,"dorial green-beckham","WR",21,7,"Oklahoma",NA,NA,NA,NA
+"385",2015,"rashad greene","WR",22,2,"Florida State",77,"Jacksonville","3(139)",73
+"386",2015,"rannell hall","WR",22,0,"Central Florida",36,NA,NA,283
+"387",2015,"justin hardy","WR",23,9,"East Carolina",73,"Atlanta","8(107)",78
+"388",2015,"chris jones","WR",20,71,"Alabama",NA,NA,NA,NA
+"389",2015,"tony lippett","WR",22,6,"Michigan State",45,"Miami","20(156)",213
+"390",2015,"tyler lockett","WR",22,70,"Kansas State",82,"Seattle","5(69)",52
+"391",2015,"vince mayle","WR",23,0,"Washington State",55,"Cleveland","24(123)",151
+"392",2015,"tre mcbride","WR",22,1,"William & Mary",67,"Tennessee","28(245)",113
+"393",2015,"ty montgomery","WR",22,18,"Stanford",68,"Green Bay","30(94)",107
+"394",2015,"keith mumphery","WR",22,2,"Michigan State",NA,NA,NA,NA
+"395",2015,"j j  nelson","WR",22,12,"Ala-Birmingham",NA,NA,NA,NA
+"396",2015,"devante parker","WR",22,40,"Louisville",92,"Miami","14(14)",9
+"397",2015,"breshad perriman","WR",21,17,"Central Florida",90,"Baltimore","26(26)",20
+"398",2015,"deandre smelter","WR",23,0,"Georgia Tech",50,"San Francisco","33(132)",181
+"399",2015,"devin smith","WR",23,2,"Ohio State",88,"NY Jets","5(37)",28
+"400",2015,"jaelen strong","WR",21,2,"Arizona State",88,"Houston","6(70)",30
+"401",2015,"darren waller","WR",22,30,"Georgia Tech",53,"Baltimore","28(204)",156
+"402",2015,"deandrew white","WR",23,0,"Alabama",43,NA,NA,227
+"403",2015,"kevin white","WR",22,3,"West Virginia",93,"Chicago","7(7)",7
+"404",2016,"bralon addison","WR",22,0,"Oregon",50,NA,NA,207
+"405",2016,"geronimo allison","WR",22,9,"Illinois",39,NA,NA,268
+"406",2016,"demarcus ayers","WR",21,0,"Houston",47,"Pittsburgh","8(229)",232
+"407",2016,"tyler boyd","WR",21,47,"Pittsburgh",84,"Cincinnati","24(55)",39
+"408",2016,"aaron burbridge","WR",22,1,"Michigan State",62,"San Francisco","38(213)",134
+"409",2016,"leonte carroo","WR",22,2,"Rutgers",78,"Miami","23(86)",67
+"410",2016,"corey coleman","WR",21,6,"Baylor",90,"Cleveland","15(15)",20
+"411",2016,"pharoh cooper","WR",21,6,"South Carolina",77,"Los Angeles","19(117)",72
+"412",2016,"cody core","WR",21,3,"Mississippi",38,"Cincinnati","24(199)",278
+"413",2016,"trevor davis","WR",22,2,"California",48,"Green Bay","24(163)",226
+"414",2016,"josh doctson","WR",23,9,"TCU",91,"Washington","22(22)",15
+"415",2016,"d j  foster","WR",22,1,"Arizona State",49,NA,NA,216
+"416",2016,"will fuller","WR",21,26,"Notre Dame",90,"Houston","21(21)",21
+"417",2016,"rashard higgins","WR",21,14,"Colorado State",61,"Cleveland","33(172)",140
+"418",2016,"johnny holton","WR",25,3,"Cincinnati",31,NA,NA,340
+"419",2016,"kenny lawler","WR",21,0,"California",65,"Seattle","22(243)",128
+"420",2016,"roger lewis","WR",22,4,"Bowling Green",46,NA,NA,239
+"421",2016,"kolby listenbee","WR",22,0,"TCU",59,"Buffalo","17(192)",158
+"422",2016,"ricardo louis","WR",21,3,"Auburn",45,"Cleveland","16(114)",243
+"423",2016,"byron marshall","WR",22,0,"Oregon",52,NA,NA,201
+"424",2016,"jalin marshall","WR",20,1,"Ohio State",46,NA,NA,240
+"425",2016,"braxton miller","WR",23,2,"Ohio State",81,"Houston","22(85)",51
+"426",2016,"malcolm mitchell","WR",23,4,"Georgia",66,"New England","14(112)",123
+"427",2016,"chris moore","WR",22,10,"Cincinnati",82,"Baltimore","9(107)",46
+"428",2016,"jordan payton","WR",22,0,"UCLA",75,"Cleveland","15(154)",83
+"429",2016,"charone peake","WR",23,1,"Clemson",68,"NY Jets","20(241)",117
+"430",2016,"demarcus robinson","WR",21,21,"Florida",44,"Kansas City","28(126)",245
+"431",2016,"alonzo russell","WR",23,0,"Toledo",32,NA,NA,336
+"432",2016,"rashawn scott","WR",24,0,"Miami (FL)",55,NA,NA,185
+"433",2016,"hunter sharp","WR",21,0,"Utah State",51,NA,NA,206
+"434",2016,"tajae sharpe","WR",21,13,"Massachusetts",56,"Tennessee","1(140)",180
+"435",2016,"sterling shepard","WR",23,30,"Oklahoma",79,"NY Giants","9(40)",61
+"436",2016,"michael thomas","WR",23,62,"Ohio State",86,"New Orleans","16(47)",37
+"437",2016,"michael thomas","WR",23,62,"Ohio State",33,"Los Angeles","31(206)",324
+"438",2016,"laquon treadwell","WR",20,9,"Mississippi",91,"Minnesota","23(23)",14
+"439",2017,"rodney adams","WR",22,0,"South Florida",35,"Minnesota","27(170)",303
+"440",2017,"quincy adeboyejo","WR",21,0,"Mississippi",41,NA,NA,254
+"441",2017,"victor bolden jr ","WR",21,0,"Oregon State",NA,NA,NA,NA
+"442",2017,"kendrick bourne","WR",21,28,"East. Washington",NA,NA,NA,NA
+"443",2017,"noah brown","WR",21,9,"Ohio State",46,"Dallas","21(239)",226
+"444",2017,"jehu chesson","WR",23,0,"Michigan",59,"Kansas City","33(139)",159
+"445",2017,"stacy coley","WR",22,0,"Miami (FL)",45,"Minnesota","1(219)",228
+"446",2017,"amara darboh","WR",23,1,"Michigan",71,"Seattle","42(106)",112
+"447",2017,"corey davis","WR",22,34,"West. Michigan",91,"Tennessee","5(5)",15
+"448",2017,"robert davis","WR",21,0,"Georgia State",56,"Washington","25(209)",178
+"449",2017,"malachi dupre","WR",21,0,"LSU",70,"Green Bay","29(247)",113
+"450",2017,"isaiah ford","WR",21,5,"Virginia Tech",47,"Miami","19(237)",218
+"451",2017,"shelton gibson","WR",22,0,"West Virginia",62,"Philadelphia","22(166)",142
+"452",2017,"chris godwin","WR",21,45,"Penn State",72,"Tampa Bay","20(84)",106
+"453",2017,"kenny golladay","WR",23,29,"Northern Illinois",50,"Detroit","32(96)",201
+"454",2017,"chad hansen","WR",22,3,"California",58,"NY Jets","35(141)",163
+"455",2017,"keon hatcher","WR",22,0,"Arkansas",36,NA,NA,299
+"456",2017,"carlos henderson","WR",22,0,"Louisiana Tech",72,"Denver","18(82)",108
+"457",2017,"mack hollins","WR",23,13,"North Carolina",73,"Philadelphia","12(118)",100
+"458",2017,"zay jones","WR",21,24,"East Carolina",87,"Buffalo","5(37)",32
+"459",2017,"cooper kupp","WR",23,57,"East. Washington",79,"Los Angeles","5(69)",64
+"460",2017,"josh malone","WR",20,1,"Tennessee",71,"Cincinnati","22(128)",111
+"461",2017,"isaiah mckenzie","WR",21,15,"Georgia",60,"Denver","29(172)",152
+"462",2017,"zach pascal","WR",22,21,"Old Dominion",48,NA,NA,215
+"463",2017,"josh reynolds","WR",22,21,"Texas A&M",67,"Los Angeles","10(117)",130
+"464",2017,"john ross","WR",21,7,"Washington",90,"Cincinnati","9(9)",20
+"465",2017,"travis rudolph","WR",21,1,"Florida State",41,NA,NA,253
+"466",2017,"curtis samuel","WR",20,25,"Ohio State",86,"Carolina","8(40)",42
+"467",2017,"ricky seals-jones","WR",21,7,"Texas A&M",NA,NA,NA,NA
+"468",2017,"juju smith-schuster","WR",20,42,"USC",NA,NA,NA,NA
+"469",2017,"ardarius stewart","WR",23,1,"Alabama",74,"NY Jets","15(79)",87
+"470",2017,"ryan switzer","WR",22,3,"North Carolina",63,"Dallas","27(133)",139
+"471",2017,"taywan taylor","WR",22,6,"Western Kentucky",76,"Tennessee","8(72)",80
+"472",2017,"trent taylor","WR",22,7,"Louisiana Tech",40,"San Francisco","34(177)",266
+"473",2017,"greg ward jr ","WR",21,6,"Houston",NA,NA,NA,NA
+"474",2017,"dede westbrook","WR",23,15,"Oklahoma",52,"Jacksonville","3(110)",188
+"475",2017,"mike williams","WR",22,39,"Clemson",91,"Los Angeles","7(7)",12
+"476",2017,"jesus wilson","WR",22,0,"Florida State",NA,NA,NA,NA
+"477",2018,"marcell ateman","WR",23,2,"Oklahoma State",56,"Las Vegas","10(228)",185
+"478",2018,"braxton berrios","WR",22,10,"Miami (FL)",49,"New England","36(210)",220
+"479",2018,"deontay burnett","WR",20,1,"USC",52,NA,NA,205
+"480",2018,"deon cain","WR",21,1,"Clemson",70,"Indianapolis","11(185)",107
+"481",2018,"antonio callaway","WR",21,5,"Florida",68,"Cleveland","5(105)",119
+"482",2018,"dylan cantrell","WR",23,0,"Texas Tech",43,"Los Angeles","17(191)",248
+"483",2018,"d j  chark","WR",21,19,"LSU",84,"Jacksonville","29(61)",48
+"484",2018,"keke coutee","WR",21,7,"Texas Tech",67,"Houston","3(103)",129
+"485",2018,"robert foster","WR",23,5,"Alabama",NA,NA,NA,NA
+"486",2018,"michael gallup","WR",22,28,"Colorado State",69,"Dallas","17(81)",110
+"487",2018,"daesean hamilton","WR",22,6,"Penn State",74,"Denver","13(113)",82
+"488",2018,"quadree henderson","WR",21,0,"Pittsburgh",32,NA,NA,327
+"489",2018,"richie james","WR",22,13,"Middle Tennessee State",NA,NA,NA,NA
+"490",2018,"christian kirk","WR",21,36,"Texas A&M",85,"Arizona","15(47)",42
+"491",2018,"chris lacy","WR",22,0,"Oklahoma State",NA,NA,NA,NA
+"492",2018,"jordan lasley","WR",21,0,"UCLA",67,"Baltimore","25(162)",125
+"493",2018,"allen lazard","WR",22,22,"Iowa State",69,NA,NA,109
+"494",2018,"ray-ray mccloud","WR",21,6,"Clemson",NA,NA,NA,NA
+"495",2018,"anthony miller","WR",23,13,"Memphis",84,"Chicago","19(51)",46
+"496",2018,"steven mitchell","WR",23,0,"USC",NA,NA,NA,NA
+"497",2018,"d j  moore","WR",20,43,"Maryland",89,"Carolina","24(24)",22
+"498",2018,"dante pettis","WR",22,10,"Washington",77,"San Francisco","12(44)",71
+"499",2018,"cam phillips","WR",22,0,"Virginia Tech",31,NA,NA,331
+"500",2018,"byron pringle","WR",24,11,"Kansas State",38,NA,NA,280
+"501",2018,"trey quinn","WR",22,2,"SMU",61,"Washington","38(256)",153
+"502",2018,"calvin ridley","WR",23,27,"Alabama",90,"Atlanta","26(26)",20
+"503",2018,"jaleel scott","WR",23,0,"New Mexico State",46,"Baltimore","32(132)",231
+"504",2018,"equanimeous st  brown","WR",21,8,"Notre Dame",64,"Green Bay","33(207)",139
+"505",2018,"courtland sutton","WR",22,26,"SMU",84,"Denver","8(40)",44
+"506",2018,"auden tate","WR",21,5,"Florida State",55,"Cincinnati","35(253)",192
+"507",2018,"marquez valdes-scantling","WR",23,26,"South Florida",NA,NA,NA,NA
+"508",2018,"james washington","WR",21,12,"Oklahoma State",83,"Pittsburgh","28(60)",50
+"509",2018,"jester weah","WR",23,0,"Pittsburgh",48,NA,NA,226
+"510",2018,"cedrick wilson","WR",22,7,"Boise State",65,"Dallas","34(208)",134
+"511",2018,"javon wims","WR",23,1,"Georgia",42,"Chicago","6(224)",258
+"512",2019,"j j  arcega-whiteside","WR",22,2,"Stanford",NA,NA,NA,NA
+"513",2019,"miles boykin","WR",22,6,"Notre Dame",80,"Baltimore","29(93)",61
+"514",2019,"a j  brown","WR",21,47,"Mississippi",85,"Tennessee","19(51)",45
+"515",2019,"marquise brown","WR",21,31,"Oklahoma",90,"Baltimore","25(25)",11
+"516",2019,"hakeem butler","WR",22,0,"Iowa State",78,"Arizona","1(103)",66
+"517",2019,"parris campbell","WR",21,9,"Ohio State",84,"Indianapolis","27(59)",49
+"518",2019,"greg dortch","WR",20,4,"Wake Forest",47,NA,NA,257
+"519",2019,"keelan doss","WR",22,1,"UC Davis",40,NA,NA,294
+"520",2019,"ashton dulin","WR",21,4,"Malone University (Ohio)",NA,NA,NA,NA
+"521",2019,"travis fulgham","WR",23,4,"Old Dominion",73,"Detroit","11(184)",89
+"522",2019,"terry godwin","WR",22,0,"Georgia",44,"Carolina","23(237)",274
+"523",2019,"mecole hardman","WR",20,23,"Georgia",78,"Kansas City","24(56)",67
+"524",2019,"kelvin harmon","WR",22,3,"North Carolina State",72,"Washington","33(206)",100
+"525",2019,"n'keal harry","WR",21,7,"Arizona State",NA,NA,NA,NA
+"526",2019,"lil'jordan humphrey","WR",20,2,"Texas",NA,NA,NA,NA
+"527",2019,"jalen hurd","WR",23,0,"Baylor",67,"San Francisco","3(67)",130
+"528",2019,"andy isabella","WR",22,4,"Massachusetts",70,"Arizona","30(62)",110
+"529",2019,"gary jennings","WR",21,0,"West Virginia",NA,NA,NA,NA
+"530",2019,"diontae johnson","WR",22,30,"Toledo",66,"Pittsburgh","2(66)",137
+"531",2019,"keesean johnson","WR",22,4,"Fresno State",62,"Arizona","1(174)",159
+"532",2019,"bisi johnson","WR",21,5,"Colorado State",NA,NA,NA,NA
+"533",2019,"terry mclaurin","WR",23,33,"Ohio State",81,"Washington","12(76)",57
+"534",2019,"d k  metcalf","WR",21,40,"Mississippi",NA,NA,NA,NA
+"535",2019,"jakobi meyers","WR",22,25,"North Carolina State",48,NA,NA,251
+"536",2019,"dillon mitchell","WR",21,0,"Oregon",58,"Minnesota","25(239)",188
+"537",2019,"stanley morgan","WR",22,0,"Nebraska",NA,NA,NA,NA
+"538",2019,"hunter renfrow","WR",23,21,"Clemson",39,"Las Vegas","11(149)",306
+"539",2019,"riley ridley","WR",22,1,"Georgia",78,"Chicago","24(126)",65
+"540",2019,"deebo samuel","WR",23,35,"South Carolina",86,"San Francisco","4(36)",39
+"541",2019,"darius slayton","WR",22,21,"Auburn",70,"NY Giants","33(171)",112
+"542",2019,"cody thompson","WR",23,0,"Toledo",36,NA,NA,327
+"543",2019,"antoine wesley","WR",21,2,"Texas Tech",55,NA,NA,205
+"544",2020,"brandon aiyuk","WR",21,24,"Arizona State",90,"San Francisco","25(25)",23
+"545",2020,"lynn bowden","WR",22,2,"Kentucky",NA,NA,NA,NA
+"546",2020,"lawrence cager","WR",22,1,"Georgia",NA,NA,NA,NA
+"547",2020,"marquez callaway","WR",21,9,"Tennessee",47,NA,NA,209
+"548",2020,"quintez cephus","WR",21,5,"Wisconsin",39,"Detroit","21(166)",248
+"549",2020,"chase claypool","WR",21,20,"Notre Dame",78,"Pittsburgh","17(49)",62
+"550",2020,"tyrie cleveland","WR",22,0,"Florida",38,"Denver","38(252)",256
+"551",2020,"isaiah coulter","WR",21,0,"Rhode Island",53,"Houston","26(171)",178
+"552",2020,"gabriel davis","WR",20,20,"UCF",57,"Buffalo","22(128)",156
+"553",2020,"devin duvernay","WR",22,12,"Texas",74,"Baltimore","28(92)",81
+"554",2020,"bryan edwards","WR",21,6,"South Carolina",69,"Las Vegas","17(81)",100
+"555",2020,"aaron fuller","WR",22,0,"Washington",40,NA,NA,242
+"556",2020,"antonio gandy-golden","WR",21,0,"Liberty",NA,NA,NA,NA
+"557",2020,"antonio gibson","WR",21,20,"Memphis",65,"Washington","2(66)",119
+"558",2020,"kj hamler","WR",20,5,"Penn State",75,"Denver","14(46)",74
+"559",2020,"tee higgins","WR",21,27,"Clemson",88,"Cincinnati","1(33)",30
+"560",2020,"john hightower","WR",23,1,"Boise State",41,"Philadelphia","23(168)",231
+"561",2020,"k j  hill","WR",22,1,"Ohio State",70,"Los Angeles","6(220)",98
+"562",2020,"isaiah hodgins","WR",21,3,"Oregon State",51,"Buffalo","28(207)",187
+"563",2020,"justin jefferson","WR",20,41,"LSU",91,"Minnesota","22(22)",14
+"564",2020,"van jefferson","WR",23,13,"Florida",67,"Los Angeles","25(57)",113
+"565",2020,"jauan jennings","WR",22,6,"Tennessee",34,"San Francisco","3(217)",278
+"566",2020,"jerry jeudy","WR",20,17,"Alabama",94,"Denver","15(15)",6
+"567",2020,"collin johnson","WR",22,3,"Texas",68,"Jacksonville","20(165)",107
+"568",2020,"juwan johnson","WR",23,5,"Oregon",52,NA,NA,183
+"569",2020,"tyler johnson","WR",21,5,"Minnesota",54,"Tampa Bay","16(161)",173
+"570",2020,"ceedee lamb","WR",20,33,"Oklahoma",92,"Dallas","17(17)",10
+"571",2020,"austin mack","WR",22,1,"Ohio State",62,NA,NA,132
+"572",2020,"denzel mims","WR",22,5,"Baylor",85,"NY Jets","27(59)",46
+"573",2020,"darnell mooney","WR",22,21,"Tulane",NA,NA,NA,NA
+"574",2020,"k j  osborn","WR",22,10,"Miami",32,"Minnesota","31(176)",293
+"575",2020,"aaron parker","WR",21,0,"Rhode Island",NA,NA,NA,NA
+"576",2020,"dezmon patmon","WR",21,0,"Washington State",48,"Indianapolis","33(212)",200
+"577",2020,"donovan peoples-jones","WR",21,17,"Michigan",NA,NA,NA,NA
+"578",2020,"malcolm perry","WR",22,1,"Navy",NA,NA,NA,NA
+"579",2020,"michael pittman","WR",22,24,"USC",NA,NA,NA,NA
+"580",2020,"james proche","WR",23,3,"SMU",55,"Baltimore","22(201)",164
+"581",2020,"jalen reagor","WR",21,8,"TCU",82,"Philadelphia","21(21)",53
+"582",2020,"joe reed","WR",22,0,"Virginia",66,"Los Angeles","5(151)",118
+"583",2020,"henry ruggs iii","WR",21,8,"Alabama",92,"Las Vegas","12(12)",11
+"584",2020,"laviska shenault jr ","WR",21,12,"Colorado",NA,NA,NA,NA
+"585",2020,"freddie swain","WR",21,5,"Florida",NA,NA,NA,NA
+"586",2020,"ben victor","WR",23,0,"Ohio State",NA,NA,NA,NA
+"587",2020,"quez watkins","WR",21,12,"Southern Miss",61,"Philadelphia","21(200)",136
+"588",2021,"tutu atwell","WR",21,3,"Louisville",85,"Los Angeles","25(57)",44
+"589",2021,"rashod bateman","WR",21,7,"Minnesota",89,"Baltimore","27(27)",29
+"590",2021,"tarik black","WR",23,0,"Texas",30,NA,NA,342
+"591",2021,"dyami brown","WR",21,2,"North Carolina",71,"Washington","19(82)",98
+"592",2021,"ja'marr chase","WR",21,24,"LSU",NA,NA,NA,NA
+"593",2021,"nico collins","WR",21,7,"Michigan",75,"Houston","26(89)",76
+"594",2021,"frank darby","WR",23,0,"Arizona St.",65,"Atlanta","3(187)",137
+"595",2021,"jaelon darden","WR",22,0,"North Texas",31,"Tampa Bay","24(129)",314
+"596",2021,"d'wayne eskridge","WR",23,2,"West. Michigan",NA,NA,NA,NA
+"597",2021,"simi fehoko","WR",23,0,"Stanford",56,"Dallas","35(179)",180
+"598",2021,"dez fitzpatrick","WR",23,0,"Louisville",57,"Tennessee","4(109)",176
+"599",2021,"racey mcmath","WR",21,0,"LSU",39,"Tennessee","21(205)",241
+"600",2021,"rondale moore","WR",20,8,"Purdue",81,"Arizona","17(49)",54
+"601",2021,"dazz newsome","WR",21,0,"North Carolina",NA,NA,NA,NA
+"602",2021,"tre nixon","WR",23,0,"Central Florida",31,"New England","15(242)",315
+"603",2021,"cornell powell","WR",23,0,"Clemson",41,"Kansas City","37(181)",230
+"604",2021,"amari rodgers","WR",21,2,"Clemson",74,"Green Bay","22(85)",86
+"605",2021,"anthony schwartz","WR",20,2,"Auburn",76,"Cleveland","28(91)",72
+"606",2021,"ihmir smith-marsette","WR",21,1,"Iowa",NA,NA,NA,NA
+"607",2021,"marquez stevenson","WR",22,0,"Houston",63,"Buffalo","19(203)",143
+"608",2021,"dillon stoner","WR",23,0,"Oklahoma St.",NA,NA,NA,NA
+"609",2021,"amon-ra st  brown","WR",21,21,"USC",NA,NA,NA,NA
+"610",2021,"kadarius toney","WR",22,5,"Florida",88,"NY Giants","20(20)",32
+"611",2022,"calvin austin","WR",22,0,"Memphis",NA,NA,NA,NA
+"612",2022,"david bell","WR",21,2,"Purdue",73,"Cleveland","35(99)",94
+"613",2022,"treylon burks","WR",21,4,"Arkansas",89,"Tennessee","18(18)",24
+"614",2022,"jahan dotson","WR",21,4,"Penn St.",89,"Washington","16(16)",25
+"615",2022,"romeo doubs","WR",21,4,"Nevada",60,"Green Bay","27(132)",157
+"616",2022,"erik ezukanma","WR",22,0,"Texas Tech",59,"Miami","20(125)",165
+"617",2022,"danny gray","WR",22,0,"SMU",58,"San Francisco","41(105)",177
+"618",2022,"johnny johnson iii","WR",22,0,"Oregon",NA,NA,NA,NA
+"619",2022,"velus jones","WR",24,2,"Tennessee",NA,NA,NA,NA
+"620",2022,"drake london","WR",20,9,"USC",92,"Atlanta","8(8)",11
+"621",2022,"bo melton","WR",22,0,"Rutgers",64,"Seattle","8(229)",137
+"622",2022,"john metchie","WR",21,0,"Alabama",NA,NA,NA,NA
+"623",2022,"skyy moore","WR",21,2,"Western Michigan",87,"Kansas City","22(54)",40
+"624",2022,"jalen nailor","WR",23,1,"Michigan St.",48,"Minnesota","12(191)",237
+"625",2022,"chris olave","WR",21,8,"Ohio St.",91,"New Orleans","11(11)",15
+"626",2022,"kyle philips","WR",22,1,"UCLA",67,"Tennessee","20(163)",126
+"627",2022,"george pickens","WR",21,7,"Georgia",83,"Pittsburgh","20(52)",58
+"628",2022,"alec pierce","WR",21,4,"Cincinnati",82,"Indianapolis","21(53)",61
+"629",2022,"wan'dale robinson","WR",21,2,"Kentucky",NA,NA,NA,NA
+"630",2022,"braylon sanders","WR",23,0,"Mississippi",56,NA,NA,190
+"631",2022,"khalil shakir","WR",22,2,"Boise St.",71,"Buffalo","5(148)",102
+"632",2022,"tyquan thornton","WR",21,2,"Baylor",69,"New England","18(50)",117
+"633",2022,"jalen tolbert","WR",23,0,"South Alabama",79,"Dallas","24(88)",74
+"634",2022,"christian watson","WR",22,7,"North Dakota St.",87,"Green Bay","2(34)",39
+"635",2022,"jameson williams","WR",20,1,"Alabama",92,"Detroit","12(12)",13
+"636",2022,"garrett wilson","WR",21,8,"Ohio St.",93,"NY Jets","10(10)",6
+"637",2022,"mike woods","WR",21,0,"Oklahoma",NA,NA,NA,NA
