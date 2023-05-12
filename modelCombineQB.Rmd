@@ -1,0 +1,3769 @@
+---
+title: "Modeling"
+output: html_document
+date: "2023-02-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(glmnet)
+```
+
+# Load data
+```{r}
+fbref_offense <- read_csv("data/fbref_offense_clean.csv") %>% select(-c(1)) %>%
+  mutate(AV = if_else(
+    is.na(AV) & !is.na(drafted),
+    0,
+    AV
+  ))
+fbref_defense <- read_csv("data/fbref_defense_clean.csv") %>% select(-c(1)) %>%
+  mutate(AV = if_else(
+    is.na(AV) & !is.na(drafted),
+    0,
+    AV
+  ))
+ESPNDraftRankings <- read_csv("data/ESPNDraftRankings_CLEAN.csv") %>% select(-c(1))
+
+```
+
+```{r}
+count_na_func <- function(x) sum(is.na(x)) 
+
+
+rbind(fbref_offense, fbref_defense) %>%
+  select(forty, vertical, bench_reps, broad_jump, three_cone, shuttle) %>%
+  mutate(count_na = apply(., 1, count_na_func)) %>%
+  group_by(count_na) %>%
+  summarise(n())
+```
+
+
+```{r}
+fbref_QB <- fbref_offense %>% filter(position == "QB") %>% mutate(player = tolower(player))
+
+qbcollegestatlinks <- fbref_QB %>% select(player, college_stats_link) %>% filter(!is.na(college_stats_link)) %>% 
+  separate(player, into = c("First", "Last"), sep = " ") %>% mutate(First = trimws(gsub("\\.", " ", First)))
+
+fbref_QB$player <- gsub("\\.", " ", fbref_QB$player)
+
+ESPN_QB <- ESPNDraftRankings %>% filter(POS == "QB") %>% mutate(Name = tolower(Name))
+```
+
+```{r}
+fbrefespn <- left_join(fbref_QB, ESPN_QB, by = c("player" = "Name", "year" = "YEAR"))
+```
+
+```{r}
+fbrefespn <- fbrefespn %>% separate(height, into = c("feet", "inch"), sep = "-") %>%
+  mutate(height = (as.numeric(feet) * 12) + as.numeric(inch)) %>% select(-feet, -inch) %>% select(c(1:6), height, c(7:25)) %>%
+  rename(weight = wt)
+```
+
+```{r}
+fbrefespnshort <- fbrefespn %>% select(year, player, position, age, AV, school, GRADE, `DRAFTED BY`, `PK(OVR)`, `OVR RANK`) %>%
+  filter(!is.na(AV) & !is.na(age))
+```
+
+
+```{r}
+qbcollegepassing <- read_csv("data/qbcollegepassing.csv") %>% rename(AYPA = `AY/A`, YPA = `Y/A`)
+
+qbcollegepassing <- qbcollegepassing %>% select(-Year, -School, -Conf,-Class, -Pos, -G, -Cmp, -Att, -Pct, -Yds, -YPA, -AYPA, -TD, -Int, -Rate) %>%
+  rename(School = '0', Conf = '1', Class = '2', Pos = '3', G = '4', Cmp = '5', Att = '6', Pct = '7', Yds = '8', 
+         YPA = '9', AYPA = '10', TD = '11', Int = '12', Rate = '13') %>% 
+  filter(!is.na(School), !is.na(Rate))
+```
+
+```{r}
+fbref_qbcomb <- left_join(fbref_QB, qbcollegepassing, by = c("college_stats_link" = "URL")) %>% 
+  separate(height, into = c("feet", "inch"), sep = "-") %>%
+  mutate(height = (as.numeric(feet) * 12) + as.numeric(inch)) %>% select(-feet, -inch) %>% rename(weight = wt) %>% select(c(1:6), height, c(7:30))
+```
+
+```{r}
+qbcollegerushing <- read_csv("data/qbcollegerushing.csv")
+
+rushing <- qbcollegerushing %>% mutate(`1` = as.numeric(`1`)) %>% filter(is.na(`1`)) %>%
+select(3,6,7,8,9, URL) %>% filter(!is.na(`5`)) %>%
+  rename(RushAtt = `5`, RushYds = `6`,
+         RushAvg = `7`, RushTD = `8`,
+         Class = `2`) %>% filter(RushAtt > 0)
+
+fbref_qbcomb <- left_join(fbref_qbcomb, rushing, by = c("college_stats_link" = "URL", "Class"))
+```
+
+```{r}
+qb_joined <- left_join(fbref_qbcomb, ESPN_QB, by = c("player" = "Name", "year" = "YEAR"))
+
+qbs <- qb_joined %>% separate(drafted, into = c("Drafted By", "Round", "Pick", "Year2"), sep = "/") %>%
+  select(-Year2) %>% mutate(Round = parse_number(Round), Pick = parse_number(Pick)) %>% select(-'DRAFTED BY', -'PK(OVR)', -SCHOOL, -POS) 
+```
+
+```{r}
+quarterbacks <- qbs %>% distinct()
+```
+
+
+# Average
+```{r}
+fbrefespn %>% summarise(across(c(forty, vertical, broad_jump, three_cone, shuttle), ~ mean(., na.rm = TRUE)))
+
+fillin_average <- fbrefespn %>% mutate(across(c(forty, vertical, broad_jump, three_cone, shuttle), 
+                                              ~if_else(is.na(.), mean(., na.rm = TRUE), .))) %>%
+  select(year, player, position, AV, forty, vertical, broad_jump, three_cone, shuttle, drafted)
+```
+
+# Height, Weight, College Stats
+```{r}
+qbs %>% distinct(Conf)
+
+combinecollege <- qbs %>% mutate(classnum = case_when(Class == 'FR' ~ 1,
+                                    Class == 'SO' ~ 2, 
+                                    Class == 'JR' ~ 3,
+                                    Class == 'SR' ~ 4)) %>% 
+  group_by(college_stats_link) %>%
+  filter(classnum == max(classnum)) %>%
+  ungroup() %>%
+  select(player, height, weight, forty, vertical, broad_jump, three_cone, shuttle, Conf, c(21:36)) %>%
+  mutate(ConfIndicator = as.factor(if_else(Conf == "ACC" | Conf == "Big Ten" |
+                                           Conf == "Pac-12" | Conf == "Big 12" |
+                                           Conf == "SEC", 1, 0 ))) %>%
+  select(-Conf, -Class, -Pos) %>% distinct(player, .keep_all = TRUE)
+```
+
+```{r}
+hwcs_forty <- combinecollege %>% select(-c(vertical, broad_jump, three_cone, shuttle, player)) %>% na.omit()
+
+hwcs_forty_x <- model.matrix(forty ~ ., hwcs_forty)[, -1]
+hwcs_forty_y <- hwcs_forty$forty
+
+set.seed(1)
+hwcs_forty_train <- sample(1:nrow(hwcs_forty_x), nrow(hwcs_forty_x) / 2)
+hwcs_forty_test <- (-hwcs_forty_train)
+hwcs_forty_y.test <- hwcs_forty_y[hwcs_forty_test]
+
+grid <- 10^seq(10, -2, length = 100)
+
+hwcs_forty_lasso.mod <- glmnet(hwcs_forty_x[hwcs_forty_train, ], hwcs_forty_y[hwcs_forty_train], alpha = 1,
+    lambda = grid)
+plot(hwcs_forty_lasso.mod)
+
+set.seed(1)
+hwcs_forty_cv.out <- cv.glmnet(hwcs_forty_x[hwcs_forty_train, ], hwcs_forty_y[hwcs_forty_train], alpha = 1)
+plot(hwcs_forty_cv.out)
+hwcs_forty_bestlam <- hwcs_forty_cv.out$lambda.min
+hwcs_forty_lasso.pred <- predict(hwcs_forty_lasso.mod, s = hwcs_forty_bestlam,
+    newx = hwcs_forty_x[hwcs_forty_test, ])
+mean((hwcs_forty_lasso.pred - hwcs_forty_y.test)^2)
+
+hwcs_forty_out <- glmnet(hwcs_forty_x, hwcs_forty_y, alpha = 1, lambda = grid)
+hwcs_forty_lasso.coef <- predict(hwcs_forty_out, type = "coefficients",
+    s = hwcs_forty_bestlam)[1:ncol(hwcs_forty), ]
+hwcs_forty_lasso.coef
+hwcs_forty_lasso.coef[hwcs_forty_lasso.coef != 0]
+```
+
+```{r}
+hwcs_vertical <- combinecollege %>% select(-c(forty, broad_jump, three_cone, shuttle, player)) %>% na.omit()
+
+hwcs_vertical_x <- model.matrix(vertical ~ ., hwcs_vertical)[, -1]
+hwcs_vertical_y <- hwcs_vertical$vertical
+
+set.seed(1)
+hwcs_vertical_train <- sample(1:nrow(hwcs_vertical_x), nrow(hwcs_vertical_x) / 2)
+hwcs_vertical_test <- (-hwcs_vertical_train)
+hwcs_vertical_y.test <- hwcs_vertical_y[hwcs_vertical_test]
+
+grid <- 10^seq(10, -2, length = 100)
+
+hwcs_vertical_lasso.mod <- glmnet(hwcs_vertical_x[hwcs_vertical_train, ], hwcs_vertical_y[hwcs_vertical_train], alpha = 1,
+    lambda = grid)
+plot(hwcs_vertical_lasso.mod)
+
+set.seed(1)
+hwcs_vertical_cv.out <- cv.glmnet(hwcs_vertical_x[hwcs_vertical_train, ], hwcs_vertical_y[hwcs_vertical_train], alpha = 1)
+plot(hwcs_vertical_cv.out)
+hwcs_vertical_bestlam <- hwcs_vertical_cv.out$lambda.min
+hwcs_vertical_lasso.pred <- predict(hwcs_vertical_lasso.mod, s = hwcs_vertical_bestlam,
+    newx = hwcs_vertical_x[hwcs_vertical_test, ])
+mean((hwcs_vertical_lasso.pred - hwcs_vertical_y.test)^2)
+
+hwcs_vertical_out <- glmnet(hwcs_vertical_x, hwcs_vertical_y, alpha = 1, lambda = grid)
+hwcs_vertical_lasso.coef <- predict(hwcs_vertical_out, type = "coefficients",
+    s = hwcs_vertical_bestlam)[1:ncol(hwcs_vertical), ]
+hwcs_vertical_lasso.coef
+hwcs_vertical_lasso.coef[hwcs_vertical_lasso.coef != 0]
+```
+
+```{r}
+hwcs_broad_jump <- combinecollege %>% select(-c(vertical, forty, three_cone, shuttle, player)) %>% na.omit()
+
+hwcs_broad_jump_x <- model.matrix(broad_jump ~ ., hwcs_broad_jump)[, -1]
+hwcs_broad_jump_y <- hwcs_broad_jump$broad_jump
+
+set.seed(1)
+hwcs_broad_jump_train <- sample(1:nrow(hwcs_broad_jump_x), nrow(hwcs_broad_jump_x) / 2)
+hwcs_broad_jump_test <- (-hwcs_broad_jump_train)
+hwcs_broad_jump_y.test <- hwcs_broad_jump_y[hwcs_broad_jump_test]
+
+grid <- 10^seq(10, -2, length = 100)
+
+hwcs_broad_jump_lasso.mod <- glmnet(hwcs_broad_jump_x[hwcs_broad_jump_train, ], hwcs_broad_jump_y[hwcs_broad_jump_train], alpha = 1,
+    lambda = grid)
+plot(hwcs_broad_jump_lasso.mod)
+
+set.seed(1)
+hwcs_broad_jump_cv.out <- cv.glmnet(hwcs_broad_jump_x[hwcs_broad_jump_train, ], hwcs_broad_jump_y[hwcs_broad_jump_train], alpha = 1)
+plot(hwcs_broad_jump_cv.out)
+hwcs_broad_jump_bestlam <- hwcs_broad_jump_cv.out$lambda.min
+hwcs_broad_jump_lasso.pred <- predict(hwcs_broad_jump_lasso.mod, s = hwcs_broad_jump_bestlam,
+    newx = hwcs_broad_jump_x[hwcs_broad_jump_test, ])
+mean((hwcs_broad_jump_lasso.pred - hwcs_broad_jump_y.test)^2)
+
+hwcs_broad_jump_out <- glmnet(hwcs_broad_jump_x, hwcs_broad_jump_y, alpha = 1, lambda = grid)
+hwcs_broad_jump_lasso.coef <- predict(hwcs_broad_jump_out, type = "coefficients",
+    s = hwcs_broad_jump_bestlam)[1:ncol(hwcs_broad_jump), ]
+hwcs_broad_jump_lasso.coef
+hwcs_broad_jump_lasso.coef[hwcs_broad_jump_lasso.coef != 0]
+```
+
+```{r}
+hwcs_three_cone <- combinecollege %>% select(-c(vertical, broad_jump, forty, shuttle, player)) %>% na.omit()
+
+hwcs_three_cone_x <- model.matrix(three_cone ~ ., hwcs_three_cone)[, -1]
+hwcs_three_cone_y <- hwcs_three_cone$three_cone
+
+set.seed(1)
+hwcs_three_cone_train <- sample(1:nrow(hwcs_three_cone_x), nrow(hwcs_three_cone_x) / 2)
+hwcs_three_cone_test <- (-hwcs_three_cone_train)
+hwcs_three_cone_y.test <- hwcs_three_cone_y[hwcs_three_cone_test]
+
+grid <- 10^seq(10, -2, length = 100)
+
+hwcs_three_cone_lasso.mod <- glmnet(hwcs_three_cone_x[hwcs_three_cone_train, ], hwcs_three_cone_y[hwcs_three_cone_train], alpha = 1,
+    lambda = grid)
+plot(hwcs_three_cone_lasso.mod)
+
+set.seed(1)
+hwcs_three_cone_cv.out <- cv.glmnet(hwcs_three_cone_x[hwcs_three_cone_train, ], hwcs_three_cone_y[hwcs_three_cone_train], alpha = 1)
+plot(hwcs_three_cone_cv.out)
+hwcs_three_cone_bestlam <- hwcs_three_cone_cv.out$lambda.min
+hwcs_three_cone_lasso.pred <- predict(hwcs_three_cone_lasso.mod, s = hwcs_three_cone_bestlam,
+    newx = hwcs_three_cone_x[hwcs_three_cone_test, ])
+mean((hwcs_three_cone_lasso.pred - hwcs_three_cone_y.test)^2)
+
+hwcs_three_cone_out <- glmnet(hwcs_three_cone_x, hwcs_three_cone_y, alpha = 1, lambda = grid)
+hwcs_three_cone_lasso.coef <- predict(hwcs_three_cone_out, type = "coefficients",
+    s = hwcs_three_cone_bestlam)[1:ncol(hwcs_three_cone), ]
+hwcs_three_cone_lasso.coef
+hwcs_three_cone_lasso.coef[hwcs_three_cone_lasso.coef != 0]
+```
+
+```{r}
+hwcs_shuttle <- combinecollege %>% select(-c(vertical, broad_jump, three_cone, forty, player)) %>% na.omit()
+
+hwcs_shuttle_x <- model.matrix(shuttle ~ ., hwcs_shuttle)[, -1]
+hwcs_shuttle_y <- hwcs_shuttle$shuttle
+
+set.seed(1)
+hwcs_shuttle_train <- sample(1:nrow(hwcs_shuttle_x), nrow(hwcs_shuttle_x) / 2)
+hwcs_shuttle_test <- (-hwcs_shuttle_train)
+hwcs_shuttle_y.test <- hwcs_shuttle_y[hwcs_shuttle_test]
+
+grid <- 10^seq(10, -2, length = 100)
+
+hwcs_shuttle_lasso.mod <- glmnet(hwcs_shuttle_x[hwcs_shuttle_train, ], hwcs_shuttle_y[hwcs_shuttle_train], alpha = 1,
+    lambda = grid)
+plot(hwcs_shuttle_lasso.mod)
+
+set.seed(1)
+hwcs_shuttle_cv.out <- cv.glmnet(hwcs_shuttle_x[hwcs_shuttle_train, ], hwcs_shuttle_y[hwcs_shuttle_train], alpha = 1)
+plot(hwcs_shuttle_cv.out)
+hwcs_shuttle_bestlam <- hwcs_shuttle_cv.out$lambda.min
+hwcs_shuttle_lasso.pred <- predict(hwcs_shuttle_lasso.mod, s = hwcs_shuttle_bestlam,
+    newx = hwcs_shuttle_x[hwcs_shuttle_test, ])
+mean((hwcs_shuttle_lasso.pred - hwcs_shuttle_y.test)^2)
+
+hwcs_shuttle_out <- glmnet(hwcs_shuttle_x, hwcs_shuttle_y, alpha = 1, lambda = grid)
+hwcs_shuttle_lasso.coef <- predict(hwcs_shuttle_out, type = "coefficients",
+    s = hwcs_shuttle_bestlam)[1:ncol(hwcs_shuttle), ]
+hwcs_shuttle_lasso.coef
+hwcs_shuttle_lasso.coef[hwcs_shuttle_lasso.coef != 0]
+```
+
+```{r}
+
+shuttle_coef_values <- hwcs_shuttle_lasso.coef[hwcs_shuttle_lasso.coef != 0]
+shuttle_var_names <- names(shuttle_coef_values)
+
+shuttle_formula_str <- paste0(shuttle_coef_values[1], " + ", paste(paste0(shuttle_coef_values[-1], " * ", shuttle_var_names[-1]), collapse = " + "))
+
+
+hwcs1 <- combinecollege %>% 
+  mutate(shuttle = if_else(is.na(shuttle), !!rlang::parse_expr(shuttle_formula_str), shuttle))
+
+forty_coef_values <- hwcs_forty_lasso.coef[hwcs_forty_lasso.coef != 0]
+forty_var_names <- names(forty_coef_values)
+
+forty_formula_str <- paste0(forty_coef_values[1], " + ", paste(paste0(forty_coef_values[-1], " * ", forty_var_names[-1]), collapse = " + "))
+
+
+hwcs2 <- hwcs1 %>% 
+  mutate(forty = if_else(is.na(forty), !!rlang::parse_expr(forty_formula_str), forty))
+
+vertical_coef_values <- hwcs_vertical_lasso.coef[hwcs_vertical_lasso.coef != 0]
+vertical_var_names <- names(vertical_coef_values)
+
+vertical_formula_str <- paste0(vertical_coef_values[1], " + ", paste(paste0(vertical_coef_values[-1], " * ", vertical_var_names[-1]), collapse = " + "))
+
+
+hwcs3 <- hwcs2 %>% 
+  mutate(vertical = if_else(is.na(vertical), !!rlang::parse_expr(vertical_formula_str), vertical))
+
+broad_jump_coef_values <- hwcs_broad_jump_lasso.coef[hwcs_broad_jump_lasso.coef != 0]
+broad_jump_var_names <- names(broad_jump_coef_values)
+
+broad_jump_formula_str <- paste0(broad_jump_coef_values[1], " + ", paste(paste0(broad_jump_coef_values[-1], " * ", broad_jump_var_names[-1]), collapse = " + "))
+
+
+hwcs4 <- hwcs3 %>% 
+  mutate(ConfIndicator1 = as.numeric(ConfIndicator)) %>%
+  mutate(broad_jump = if_else(is.na(broad_jump), !!rlang::parse_expr(broad_jump_formula_str), broad_jump)) %>%
+  select(-ConfIndicator1)
+
+three_cone_coef_values <- hwcs_three_cone_lasso.coef[hwcs_three_cone_lasso.coef != 0]
+three_cone_var_names <- names(three_cone_coef_values)
+
+three_cone_formula_str <- paste0(three_cone_coef_values[1], " + ", paste(paste0(three_cone_coef_values[-1], " * ", three_cone_var_names[-1]), collapse = " + "))
+
+
+hwcs <- hwcs4 %>% 
+  mutate(ConfIndicator1 = as.numeric(ConfIndicator)) %>%
+  mutate(three_cone = if_else(is.na(three_cone), !!rlang::parse_expr(three_cone_formula_str), three_cone)) %>%
+  select(-ConfIndicator1)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+__NFL COMBINE ONLY__
+
+# Combine Combinations to check what combinations of variables need to be used together
+```{r}
+combineonly <- qbs %>% distinct(player, forty, vertical, broad_jump, three_cone, shuttle)
+cc1 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc2 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc3 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc4 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc5 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc6 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc7 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc8 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc9 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc10 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc11 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc12 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc13 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc14 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc15 <- combineonly %>% filter(!is.na(forty) & !is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc16 <- combineonly %>% filter(!is.na(forty) & is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc17 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc18 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc19 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc20 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc21 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc22 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc23 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc24 <- combineonly %>% filter(is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc25 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+cc26 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc27 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc28 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc29 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle))
+cc30 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+cc31 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle))
+cc32 <- combineonly %>% filter(is.na(forty) & is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle))
+```
+
+# Use forty to predict
+```{r}
+forty_2_vertical <- combineonly %>% select(forty, vertical) %>% filter(!is.na(forty) & ! is.na(vertical))
+
+
+f2v_vertical_x <- model.matrix(vertical ~ ., forty_2_vertical)
+f2v_vertical_y <- forty_2_vertical$vertical
+f2v_vertical_x 
+mean(f2v_vertical_y)
+
+set.seed(2)
+f2v_vertical_train <- sample(1:nrow(f2v_vertical_x), .8*nrow(f2v_vertical_x))
+f2v_vertical_test <- (-f2v_vertical_train)
+f2v_vertical_y.test <- f2v_vertical_y[f2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f2v_vertical_lasso.mod <- glmnet(f2v_vertical_x[f2v_vertical_train, ], f2v_vertical_y[f2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f2v_vertical_lasso.mod)
+
+set.seed(1)
+f2v_vertical_cv.out <- cv.glmnet(f2v_vertical_x[f2v_vertical_train, ], f2v_vertical_y[f2v_vertical_train], alpha = 1)
+#plot(f2v_vertical_cv.out)
+f2v_vertical_bestlam <- f2v_vertical_cv.out$lambda.min
+#f2v_vertical_bestlam <- 1
+f2v_vertical_lasso.pred <- predict(f2v_vertical_lasso.mod, s = f2v_vertical_bestlam,
+    newx = f2v_vertical_x[f2v_vertical_test, ])
+mean((f2v_vertical_lasso.pred - f2v_vertical_y.test)^2)
+
+f2v_vertical_out <- glmnet(f2v_vertical_x, f2v_vertical_y, alpha = 1, lambda = f2v_vertical_bestlam )
+coef(f2v_vertical_out)
+f2v_vertical_lasso.coef <- predict(f2v_vertical_out, type = "coefficients",
+    s = f2v_vertical_bestlam)[1:(ncol(forty_2_vertical)+1), ]
+f2v_vertical_lasso.coef
+f2v_vertical_lasso.coef[f2v_vertical_lasso.coef != 0]
+
+ggplot(forty_2_vertical[-f2v_vertical_train,] %>% mutate(pred = f2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+f2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(forty), forty_2_vertical)
+f2v_vertical_y_scale <- (forty_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+f2v_vertical_train <- sample(1:nrow(f2v_vertical_x_scale), .8*nrow(f2v_vertical_x_scale))
+f2v_vertical_test <- (-f2v_vertical_train)
+f2v_vertical_y.test_scale <- f2v_vertical_y_scale[f2v_vertical_test]
+
+f2v_vertical_lasso.mod_scale <- glmnet(f2v_vertical_x_scale[f2v_vertical_train, ], f2v_vertical_y_scale[f2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f2v_vertical_cv.out_scale <- cv.glmnet(f2v_vertical_x_scale[f2v_vertical_train, ], f2v_vertical_y_scale[f2v_vertical_train], alpha = 1)
+#plot(f2v_vertical_cv.out)
+f2v_vertical_bestlam_scale <- f2v_vertical_cv.out_scale$lambda.min
+#f2v_vertical_bestlam <- 1
+f2v_vertical_lasso.pred_scale <- predict(f2v_vertical_lasso.mod_scale, s = f2v_vertical_bestlam_scale,
+    newx = f2v_vertical_x_scale[f2v_vertical_test, ])
+mean((f2v_vertical_lasso.pred_scale - f2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+forty_2_broad_jump <- combineonly %>% select(forty, broad_jump) %>% filter(!is.na(forty) & ! is.na(broad_jump))
+
+
+f2bj_broad_jump_x <- model.matrix(broad_jump ~ ., forty_2_broad_jump)
+f2bj_broad_jump_y <- forty_2_broad_jump$broad_jump
+f2bj_broad_jump_x 
+mean(f2bj_broad_jump_y)
+
+set.seed(2)
+f2bj_broad_jump_train <- sample(1:nrow(f2bj_broad_jump_x), .8*nrow(f2bj_broad_jump_x))
+f2bj_broad_jump_test <- (-f2bj_broad_jump_train)
+f2bj_broad_jump_y.test <- f2bj_broad_jump_y[f2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f2bj_broad_jump_lasso.mod <- glmnet(f2bj_broad_jump_x[f2bj_broad_jump_train, ], f2bj_broad_jump_y[f2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+f2bj_broad_jump_cv.out <- cv.glmnet(f2bj_broad_jump_x[f2bj_broad_jump_train, ], f2bj_broad_jump_y[f2bj_broad_jump_train], alpha = 1)
+#plot(f2bj_broad_jump_cv.out)
+f2bj_broad_jump_bestlam <- f2bj_broad_jump_cv.out$lambda.min
+#f2bj_broad_jump_bestlam <- 1
+f2bj_broad_jump_lasso.pred <- predict(f2bj_broad_jump_lasso.mod, s = f2bj_broad_jump_bestlam,
+    newx = f2bj_broad_jump_x[f2bj_broad_jump_test, ])
+mean((f2bj_broad_jump_lasso.pred - f2bj_broad_jump_y.test)^2)
+
+f2bj_broad_jump_out <- glmnet(f2bj_broad_jump_x, f2bj_broad_jump_y, alpha = 1, lambda = f2bj_broad_jump_bestlam )
+coef(f2bj_broad_jump_out)
+f2bj_broad_jump_lasso.coef <- predict(f2bj_broad_jump_out, type = "coefficients",
+    s = f2bj_broad_jump_bestlam)[1:(ncol(forty_2_broad_jump)+1), ]
+f2bj_broad_jump_lasso.coef
+f2bj_broad_jump_lasso.coef[f2bj_broad_jump_lasso.coef != 0]
+
+ggplot(forty_2_broad_jump[-f2bj_broad_jump_train,] %>% mutate(pred = f2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+f2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(forty), forty_2_broad_jump)
+f2bj_broad_jump_y_scale <- (forty_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+f2bj_broad_jump_train <- sample(1:nrow(f2bj_broad_jump_x_scale), .8*nrow(f2bj_broad_jump_x_scale))
+f2bj_broad_jump_test <- (-f2bj_broad_jump_train)
+f2bj_broad_jump_y.test_scale <- f2bj_broad_jump_y_scale[f2bj_broad_jump_test]
+
+f2bj_broad_jump_lasso.mod_scale <- glmnet(f2bj_broad_jump_x_scale[f2bj_broad_jump_train, ], f2bj_broad_jump_y_scale[f2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f2bj_broad_jump_cv.out_scale <- cv.glmnet(f2bj_broad_jump_x_scale[f2bj_broad_jump_train, ], f2bj_broad_jump_y_scale[f2bj_broad_jump_train], alpha = 1)
+#plot(f2bj_broad_jump_cv.out)
+f2bj_broad_jump_bestlam_scale <- f2bj_broad_jump_cv.out_scale$lambda.min
+#f2bj_broad_jump_bestlam <- 1
+f2bj_broad_jump_lasso.pred_scale <- predict(f2bj_broad_jump_lasso.mod_scale, s = f2bj_broad_jump_bestlam_scale,
+    newx = f2bj_broad_jump_x_scale[f2bj_broad_jump_test, ])
+mean((f2bj_broad_jump_lasso.pred_scale - f2bj_broad_jump_y.test_scale)^2)
+```
+
+```{r}
+forty_2_three_cone <- combineonly %>% select(forty, three_cone) %>% filter(!is.na(forty) & ! is.na(three_cone))
+
+
+f23c_three_cone_x <- model.matrix(three_cone ~ ., forty_2_three_cone)
+f23c_three_cone_y <- forty_2_three_cone$three_cone
+f23c_three_cone_x 
+mean(f23c_three_cone_y)
+
+set.seed(2)
+f23c_three_cone_train <- sample(1:nrow(f23c_three_cone_x), .8*nrow(f23c_three_cone_x))
+f23c_three_cone_test <- (-f23c_three_cone_train)
+f23c_three_cone_y.test <- f23c_three_cone_y[f23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f23c_three_cone_lasso.mod <- glmnet(f23c_three_cone_x[f23c_three_cone_train, ], f23c_three_cone_y[f23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f23c_three_cone_lasso.mod)
+
+set.seed(1)
+f23c_three_cone_cv.out <- cv.glmnet(f23c_three_cone_x[f23c_three_cone_train, ], f23c_three_cone_y[f23c_three_cone_train], alpha = 1)
+#plot(f23c_three_cone_cv.out)
+f23c_three_cone_bestlam <- f23c_three_cone_cv.out$lambda.min
+#f23c_three_cone_bestlam <- 1
+f23c_three_cone_lasso.pred <- predict(f23c_three_cone_lasso.mod, s = f23c_three_cone_bestlam,
+    newx = f23c_three_cone_x[f23c_three_cone_test, ])
+mean((f23c_three_cone_lasso.pred - f23c_three_cone_y.test)^2)
+
+f23c_three_cone_out <- glmnet(f23c_three_cone_x, f23c_three_cone_y, alpha = 1, lambda = f23c_three_cone_bestlam )
+coef(f23c_three_cone_out)
+f23c_three_cone_lasso.coef <- predict(f23c_three_cone_out, type = "coefficients",
+    s = f23c_three_cone_bestlam)[1:(ncol(forty_2_three_cone)+1), ]
+f23c_three_cone_lasso.coef
+f23c_three_cone_lasso.coef[f23c_three_cone_lasso.coef != 0]
+
+ggplot(forty_2_three_cone[-f23c_three_cone_train,] %>% mutate(pred = f23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+f23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(forty), forty_2_three_cone)
+f23c_three_cone_y_scale <- (forty_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+f23c_three_cone_train <- sample(1:nrow(f23c_three_cone_x_scale), .8*nrow(f23c_three_cone_x_scale))
+f23c_three_cone_test <- (-f23c_three_cone_train)
+f23c_three_cone_y.test_scale <- f23c_three_cone_y_scale[f23c_three_cone_test]
+
+f23c_three_cone_lasso.mod_scale <- glmnet(f23c_three_cone_x_scale[f23c_three_cone_train, ], f23c_three_cone_y_scale[f23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f23c_three_cone_cv.out_scale <- cv.glmnet(f23c_three_cone_x_scale[f23c_three_cone_train, ], f23c_three_cone_y_scale[f23c_three_cone_train], alpha = 1)
+#plot(f23c_three_cone_cv.out)
+f23c_three_cone_bestlam_scale <- f23c_three_cone_cv.out_scale$lambda.min
+#f23c_three_cone_bestlam <- 1
+f23c_three_cone_lasso.pred_scale <- predict(f23c_three_cone_lasso.mod_scale, s = f23c_three_cone_bestlam_scale,
+    newx = f23c_three_cone_x_scale[f23c_three_cone_test, ])
+mean((f23c_three_cone_lasso.pred_scale - f23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+forty_2_shuttle <- combineonly %>% select(forty, shuttle) %>% filter(!is.na(forty) & ! is.na(shuttle))
+
+
+f2s_shuttle_x <- model.matrix(shuttle ~ ., forty_2_shuttle)
+f2s_shuttle_y <- forty_2_shuttle$shuttle
+f2s_shuttle_x 
+mean(f2s_shuttle_y)
+
+set.seed(2)
+f2s_shuttle_train <- sample(1:nrow(f2s_shuttle_x), .8*nrow(f2s_shuttle_x))
+f2s_shuttle_test <- (-f2s_shuttle_train)
+f2s_shuttle_y.test <- f2s_shuttle_y[f2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f2s_shuttle_lasso.mod <- glmnet(f2s_shuttle_x[f2s_shuttle_train, ], f2s_shuttle_y[f2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f2s_shuttle_lasso.mod)
+
+set.seed(1)
+f2s_shuttle_cv.out <- cv.glmnet(f2s_shuttle_x[f2s_shuttle_train, ], f2s_shuttle_y[f2s_shuttle_train], alpha = 1)
+#plot(f2s_shuttle_cv.out)
+f2s_shuttle_bestlam <- f2s_shuttle_cv.out$lambda.min
+#f2s_shuttle_bestlam <- 1
+f2s_shuttle_lasso.pred <- predict(f2s_shuttle_lasso.mod, s = f2s_shuttle_bestlam,
+    newx = f2s_shuttle_x[f2s_shuttle_test, ])
+mean((f2s_shuttle_lasso.pred - f2s_shuttle_y.test)^2)
+
+f2s_shuttle_out <- glmnet(f2s_shuttle_x, f2s_shuttle_y, alpha = 1, lambda = f2s_shuttle_bestlam )
+coef(f2s_shuttle_out)
+f2s_shuttle_lasso.coef <- predict(f2s_shuttle_out, type = "coefficients",
+    s = f2s_shuttle_bestlam)[1:(ncol(forty_2_shuttle)+1), ]
+f2s_shuttle_lasso.coef
+f2s_shuttle_lasso.coef[f2s_shuttle_lasso.coef != 0]
+
+ggplot(forty_2_shuttle[-f2s_shuttle_train,] %>% mutate(pred = f2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+f2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(forty), forty_2_shuttle)
+f2s_shuttle_y_scale <- (forty_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+f2s_shuttle_train <- sample(1:nrow(f2s_shuttle_x_scale), .8*nrow(f2s_shuttle_x_scale))
+f2s_shuttle_test <- (-f2s_shuttle_train)
+f2s_shuttle_y.test_scale <- f2s_shuttle_y_scale[f2s_shuttle_test]
+
+f2s_shuttle_lasso.mod_scale <- glmnet(f2s_shuttle_x_scale[f2s_shuttle_train, ], f2s_shuttle_y_scale[f2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f2s_shuttle_cv.out_scale <- cv.glmnet(f2s_shuttle_x_scale[f2s_shuttle_train, ], f2s_shuttle_y_scale[f2s_shuttle_train], alpha = 1)
+#plot(f2s_shuttle_cv.out)
+f2s_shuttle_bestlam_scale <- f2s_shuttle_cv.out_scale$lambda.min
+#f2s_shuttle_bestlam <- 1
+f2s_shuttle_lasso.pred_scale <- predict(f2s_shuttle_lasso.mod_scale, s = f2s_shuttle_bestlam_scale,
+    newx = f2s_shuttle_x_scale[f2s_shuttle_test, ])
+mean((f2s_shuttle_lasso.pred_scale - f2s_shuttle_y.test_scale)^2)
+```
+
+# If player only has forty predict broad jump
+```{r}
+update1 <- combineonly %>% mutate(broad_jump = if_else(
+                           !is.na(forty) & is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           f2bj_broad_jump_lasso.coef[f2bj_broad_jump_lasso.coef != 0][1] +
+                             f2bj_broad_jump_lasso.coef[f2bj_broad_jump_lasso.coef != 0][2] * forty,
+                           broad_jump
+                         )) 
+```
+
+# Use forty and broad jump to predict
+```{r}
+forty_broad_jump_2_vertical <- combineonly %>% select(forty, broad_jump, vertical) %>% 
+  filter(!is.na(forty) & !is.na(broad_jump) & !is.na(vertical))
+
+
+fbj2v_vertical_x <- model.matrix(vertical ~ ., forty_broad_jump_2_vertical)
+fbj2v_vertical_y <- forty_broad_jump_2_vertical$vertical
+fbj2v_vertical_x 
+mean(fbj2v_vertical_y)
+
+set.seed(2)
+fbj2v_vertical_train <- sample(1:nrow(fbj2v_vertical_x), .8*nrow(fbj2v_vertical_x))
+fbj2v_vertical_test <- (-fbj2v_vertical_train)
+fbj2v_vertical_y.test <- fbj2v_vertical_y[fbj2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fbj2v_vertical_lasso.mod <- glmnet(fbj2v_vertical_x[fbj2v_vertical_train, ], fbj2v_vertical_y[fbj2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fbj2v_vertical_lasso.mod)
+
+set.seed(1)
+fbj2v_vertical_cv.out <- cv.glmnet(fbj2v_vertical_x[fbj2v_vertical_train, ], fbj2v_vertical_y[fbj2v_vertical_train], alpha = 1)
+#plot(fbj2v_vertical_cv.out)
+fbj2v_vertical_bestlam <- fbj2v_vertical_cv.out$lambda.min
+#fbj2v_vertical_bestlam <- 1
+fbj2v_vertical_lasso.pred <- predict(fbj2v_vertical_lasso.mod, s = fbj2v_vertical_bestlam,
+    newx = fbj2v_vertical_x[fbj2v_vertical_test, ])
+mean((fbj2v_vertical_lasso.pred - fbj2v_vertical_y.test)^2)
+
+fbj2v_vertical_out <- glmnet(fbj2v_vertical_x, fbj2v_vertical_y, alpha = 1, lambda = fbj2v_vertical_bestlam )
+coef(fbj2v_vertical_out)
+fbj2v_vertical_lasso.coef <- predict(fbj2v_vertical_out, type = "coefficients",
+    s = fbj2v_vertical_bestlam)[1:(ncol(forty_2_vertical)+2), ]
+fbj2v_vertical_lasso.coef
+fbj2v_vertical_lasso.coef[fbj2v_vertical_lasso.coef != 0]
+
+ggplot(forty_broad_jump_2_vertical[-fbj2v_vertical_train,] %>% mutate(pred = fbj2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+fbj2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(forty) + scale(broad_jump), forty_broad_jump_2_vertical)
+fbj2v_vertical_y_scale <- (forty_broad_jump_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+fbj2v_vertical_train <- sample(1:nrow(fbj2v_vertical_x_scale), .8*nrow(fbj2v_vertical_x_scale))
+fbj2v_vertical_test <- (-fbj2v_vertical_train)
+fbj2v_vertical_y.test_scale <- fbj2v_vertical_y_scale[fbj2v_vertical_test]
+
+fbj2v_vertical_lasso.mod_scale <- glmnet(fbj2v_vertical_x_scale[fbj2v_vertical_train, ], fbj2v_vertical_y_scale[fbj2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fbj2v_vertical_cv.out_scale <- cv.glmnet(fbj2v_vertical_x_scale[fbj2v_vertical_train, ], fbj2v_vertical_y_scale[fbj2v_vertical_train], alpha = 1)
+#plot(fbj2v_vertical_cv.out)
+fbj2v_vertical_bestlam_scale <- fbj2v_vertical_cv.out_scale$lambda.min
+#fbj2v_vertical_bestlam <- 1
+fbj2v_vertical_lasso.pred_scale <- predict(fbj2v_vertical_lasso.mod_scale, s = fbj2v_vertical_bestlam_scale,
+    newx = fbj2v_vertical_x_scale[fbj2v_vertical_test, ])
+mean((fbj2v_vertical_lasso.pred_scale - fbj2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+forty_broad_jump_2_three_cone <- combineonly %>% select(forty, broad_jump, three_cone) %>% 
+  filter(!is.na(forty) & !is.na(broad_jump) & !is.na(three_cone))
+
+
+fbj23c_three_cone_x <- model.matrix(three_cone ~ ., forty_broad_jump_2_three_cone)
+fbj23c_three_cone_y <- forty_broad_jump_2_three_cone$three_cone
+fbj23c_three_cone_x 
+mean(fbj23c_three_cone_y)
+
+set.seed(2)
+fbj23c_three_cone_train <- sample(1:nrow(fbj23c_three_cone_x), .8*nrow(fbj23c_three_cone_x))
+fbj23c_three_cone_test <- (-fbj23c_three_cone_train)
+fbj23c_three_cone_y.test <- fbj23c_three_cone_y[fbj23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fbj23c_three_cone_lasso.mod <- glmnet(fbj23c_three_cone_x[fbj23c_three_cone_train, ], fbj23c_three_cone_y[fbj23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fbj23c_three_cone_lasso.mod)
+
+set.seed(1)
+fbj23c_three_cone_cv.out <- cv.glmnet(fbj23c_three_cone_x[fbj23c_three_cone_train, ], fbj23c_three_cone_y[fbj23c_three_cone_train], alpha = 1)
+#plot(fbj23c_three_cone_cv.out)
+fbj23c_three_cone_bestlam <- fbj23c_three_cone_cv.out$lambda.min
+#fbj23c_three_cone_bestlam <- 1
+fbj23c_three_cone_lasso.pred <- predict(fbj23c_three_cone_lasso.mod, s = fbj23c_three_cone_bestlam,
+    newx = fbj23c_three_cone_x[fbj23c_three_cone_test, ])
+mean((fbj23c_three_cone_lasso.pred - fbj23c_three_cone_y.test)^2)
+
+fbj23c_three_cone_out <- glmnet(fbj23c_three_cone_x, fbj23c_three_cone_y, alpha = 1, lambda = fbj23c_three_cone_bestlam )
+coef(fbj23c_three_cone_out)
+fbj23c_three_cone_lasso.coef <- predict(fbj23c_three_cone_out, type = "coefficients",
+    s = fbj23c_three_cone_bestlam)[1:(ncol(forty_2_three_cone)+2), ]
+fbj23c_three_cone_lasso.coef
+fbj23c_three_cone_lasso.coef[fbj23c_three_cone_lasso.coef != 0]
+
+ggplot(forty_broad_jump_2_three_cone[-fbj23c_three_cone_train,] %>% mutate(pred = fbj23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+fbj23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(forty) + scale(broad_jump), forty_broad_jump_2_three_cone)
+fbj23c_three_cone_y_scale <- (forty_broad_jump_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+fbj23c_three_cone_train <- sample(1:nrow(fbj23c_three_cone_x_scale), .8*nrow(fbj23c_three_cone_x_scale))
+fbj23c_three_cone_test <- (-fbj23c_three_cone_train)
+fbj23c_three_cone_y.test_scale <- fbj23c_three_cone_y_scale[fbj23c_three_cone_test]
+
+fbj23c_three_cone_lasso.mod_scale <- glmnet(fbj23c_three_cone_x_scale[fbj23c_three_cone_train, ], fbj23c_three_cone_y_scale[fbj23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fbj23c_three_cone_cv.out_scale <- cv.glmnet(fbj23c_three_cone_x_scale[fbj23c_three_cone_train, ], fbj23c_three_cone_y_scale[fbj23c_three_cone_train], alpha = 1)
+#plot(fbj23c_three_cone_cv.out)
+fbj23c_three_cone_bestlam_scale <- fbj23c_three_cone_cv.out_scale$lambda.min
+#fbj23c_three_cone_bestlam <- 1
+fbj23c_three_cone_lasso.pred_scale <- predict(fbj23c_three_cone_lasso.mod_scale, s = fbj23c_three_cone_bestlam_scale,
+    newx = fbj23c_three_cone_x_scale[fbj23c_three_cone_test, ])
+mean((fbj23c_three_cone_lasso.pred_scale - fbj23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+forty_broad_jump_2_shuttle <- combineonly %>% select(forty, broad_jump, shuttle) %>% 
+  filter(!is.na(forty) & !is.na(broad_jump) & !is.na(shuttle))
+
+
+fbj2s_shuttle_x <- model.matrix(shuttle ~ ., forty_broad_jump_2_shuttle)
+fbj2s_shuttle_y <- forty_broad_jump_2_shuttle$shuttle
+fbj2s_shuttle_x 
+mean(fbj2s_shuttle_y)
+
+set.seed(2)
+fbj2s_shuttle_train <- sample(1:nrow(fbj2s_shuttle_x), .8*nrow(fbj2s_shuttle_x))
+fbj2s_shuttle_test <- (-fbj2s_shuttle_train)
+fbj2s_shuttle_y.test <- fbj2s_shuttle_y[fbj2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fbj2s_shuttle_lasso.mod <- glmnet(fbj2s_shuttle_x[fbj2s_shuttle_train, ], fbj2s_shuttle_y[fbj2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fbj2s_shuttle_lasso.mod)
+
+set.seed(1)
+fbj2s_shuttle_cv.out <- cv.glmnet(fbj2s_shuttle_x[fbj2s_shuttle_train, ], fbj2s_shuttle_y[fbj2s_shuttle_train], alpha = 1)
+#plot(fbj2s_shuttle_cv.out)
+fbj2s_shuttle_bestlam <- fbj2s_shuttle_cv.out$lambda.min
+#fbj2s_shuttle_bestlam <- 1
+fbj2s_shuttle_lasso.pred <- predict(fbj2s_shuttle_lasso.mod, s = fbj2s_shuttle_bestlam,
+    newx = fbj2s_shuttle_x[fbj2s_shuttle_test, ])
+mean((fbj2s_shuttle_lasso.pred - fbj2s_shuttle_y.test)^2)
+
+fbj2s_shuttle_out <- glmnet(fbj2s_shuttle_x, fbj2s_shuttle_y, alpha = 1, lambda = fbj2s_shuttle_bestlam )
+coef(fbj2s_shuttle_out)
+fbj2s_shuttle_lasso.coef <- predict(fbj2s_shuttle_out, type = "coefficients",
+    s = fbj2s_shuttle_bestlam)[1:(ncol(forty_2_shuttle)+2), ]
+fbj2s_shuttle_lasso.coef
+fbj2s_shuttle_lasso.coef[fbj2s_shuttle_lasso.coef != 0]
+
+ggplot(forty_broad_jump_2_shuttle[-fbj2s_shuttle_train,] %>% mutate(pred = fbj2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+fbj2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(forty) + scale(broad_jump), forty_broad_jump_2_shuttle)
+fbj2s_shuttle_y_scale <- (forty_broad_jump_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+fbj2s_shuttle_train <- sample(1:nrow(fbj2s_shuttle_x_scale), .8*nrow(fbj2s_shuttle_x_scale))
+fbj2s_shuttle_test <- (-fbj2s_shuttle_train)
+fbj2s_shuttle_y.test_scale <- fbj2s_shuttle_y_scale[fbj2s_shuttle_test]
+
+fbj2s_shuttle_lasso.mod_scale <- glmnet(fbj2s_shuttle_x_scale[fbj2s_shuttle_train, ], fbj2s_shuttle_y_scale[fbj2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fbj2s_shuttle_cv.out_scale <- cv.glmnet(fbj2s_shuttle_x_scale[fbj2s_shuttle_train, ], fbj2s_shuttle_y_scale[fbj2s_shuttle_train], alpha = 1)
+#plot(fbj2s_shuttle_cv.out)
+fbj2s_shuttle_bestlam_scale <- fbj2s_shuttle_cv.out_scale$lambda.min
+#fbj2s_shuttle_bestlam <- 1
+fbj2s_shuttle_lasso.pred_scale <- predict(fbj2s_shuttle_lasso.mod_scale, s = fbj2s_shuttle_bestlam_scale,
+    newx = fbj2s_shuttle_x_scale[fbj2s_shuttle_test, ])
+mean((fbj2s_shuttle_lasso.pred_scale - fbj2s_shuttle_y.test_scale)^2)
+```
+
+# If player only has forty and broad jump predict vertical
+```{r}
+update2 <- update1 %>% mutate(vertical = if_else(
+                           !is.na(forty) & is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           fbj2v_vertical_lasso.coef[fbj2v_vertical_lasso.coef != 0][1] +
+                             fbj2v_vertical_lasso.coef[fbj2v_vertical_lasso.coef != 0][2] * forty +
+                             fbj2v_vertical_lasso.coef[fbj2v_vertical_lasso.coef != 0][3] * broad_jump,
+                           vertical
+                         )) 
+```
+
+# Use forty and vertical to predict
+```{r}
+forty_vertical_2_broad_jump <- combineonly %>% select(forty, vertical, broad_jump) %>% 
+  filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump))
+
+
+fv2bj_broad_jump_x <- model.matrix(broad_jump ~ ., forty_vertical_2_broad_jump)
+fv2bj_broad_jump_y <- forty_vertical_2_broad_jump$broad_jump
+fv2bj_broad_jump_x 
+mean(fv2bj_broad_jump_y)
+
+set.seed(2)
+fv2bj_broad_jump_train <- sample(1:nrow(fv2bj_broad_jump_x), .8*nrow(fv2bj_broad_jump_x))
+fv2bj_broad_jump_test <- (-fv2bj_broad_jump_train)
+fv2bj_broad_jump_y.test <- fv2bj_broad_jump_y[fv2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fv2bj_broad_jump_lasso.mod <- glmnet(fv2bj_broad_jump_x[fv2bj_broad_jump_train, ], fv2bj_broad_jump_y[fv2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fv2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+fv2bj_broad_jump_cv.out <- cv.glmnet(fv2bj_broad_jump_x[fv2bj_broad_jump_train, ], fv2bj_broad_jump_y[fv2bj_broad_jump_train], alpha = 1)
+#plot(fv2bj_broad_jump_cv.out)
+fv2bj_broad_jump_bestlam <- fv2bj_broad_jump_cv.out$lambda.min
+#fv2bj_broad_jump_bestlam <- 1
+fv2bj_broad_jump_lasso.pred <- predict(fv2bj_broad_jump_lasso.mod, s = fv2bj_broad_jump_bestlam,
+    newx = fv2bj_broad_jump_x[fv2bj_broad_jump_test, ])
+mean((fv2bj_broad_jump_lasso.pred - fv2bj_broad_jump_y.test)^2)
+
+fv2bj_broad_jump_out <- glmnet(fv2bj_broad_jump_x, fv2bj_broad_jump_y, alpha = 1, lambda = fv2bj_broad_jump_bestlam )
+coef(fv2bj_broad_jump_out)
+fv2bj_broad_jump_lasso.coef <- predict(fv2bj_broad_jump_out, type = "coefficients",
+    s = fv2bj_broad_jump_bestlam)[1:(ncol(forty_2_broad_jump)+2), ]
+fv2bj_broad_jump_lasso.coef
+fv2bj_broad_jump_lasso.coef[fv2bj_broad_jump_lasso.coef != 0]
+
+ggplot(forty_vertical_2_broad_jump[-fv2bj_broad_jump_train,] %>% mutate(pred = fv2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+fv2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(forty) + scale(vertical), forty_vertical_2_broad_jump)
+fv2bj_broad_jump_y_scale <- (forty_vertical_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+fv2bj_broad_jump_train <- sample(1:nrow(fv2bj_broad_jump_x_scale), .8*nrow(fv2bj_broad_jump_x_scale))
+fv2bj_broad_jump_test <- (-fv2bj_broad_jump_train)
+fv2bj_broad_jump_y.test_scale <- fv2bj_broad_jump_y_scale[fv2bj_broad_jump_test]
+
+fv2bj_broad_jump_lasso.mod_scale <- glmnet(fv2bj_broad_jump_x_scale[fv2bj_broad_jump_train, ], fv2bj_broad_jump_y_scale[fv2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fv2bj_broad_jump_cv.out_scale <- cv.glmnet(fv2bj_broad_jump_x_scale[fv2bj_broad_jump_train, ], fv2bj_broad_jump_y_scale[fv2bj_broad_jump_train], alpha = 1)
+#plot(fv2bj_broad_jump_cv.out)
+fv2bj_broad_jump_bestlam_scale <- fv2bj_broad_jump_cv.out_scale$lambda.min
+#fv2bj_broad_jump_bestlam <- 1
+fv2bj_broad_jump_lasso.pred_scale <- predict(fv2bj_broad_jump_lasso.mod_scale, s = fv2bj_broad_jump_bestlam_scale,
+    newx = fv2bj_broad_jump_x_scale[fv2bj_broad_jump_test, ])
+mean((fv2bj_broad_jump_lasso.pred_scale - fv2bj_broad_jump_y.test_scale)^2)
+```
+
+```{r}
+forty_vertical_2_three_cone <- combineonly %>% select(forty, vertical, three_cone) %>% 
+  filter(!is.na(forty) & !is.na(vertical) & !is.na(three_cone))
+
+
+fv23c_three_cone_x <- model.matrix(three_cone ~ ., forty_vertical_2_three_cone)
+fv23c_three_cone_y <- forty_vertical_2_three_cone$three_cone
+fv23c_three_cone_x 
+mean(fv23c_three_cone_y)
+
+set.seed(2)
+fv23c_three_cone_train <- sample(1:nrow(fv23c_three_cone_x), .8*nrow(fv23c_three_cone_x))
+fv23c_three_cone_test <- (-fv23c_three_cone_train)
+fv23c_three_cone_y.test <- fv23c_three_cone_y[fv23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fv23c_three_cone_lasso.mod <- glmnet(fv23c_three_cone_x[fv23c_three_cone_train, ], fv23c_three_cone_y[fv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fv23c_three_cone_lasso.mod)
+
+set.seed(1)
+fv23c_three_cone_cv.out <- cv.glmnet(fv23c_three_cone_x[fv23c_three_cone_train, ], fv23c_three_cone_y[fv23c_three_cone_train], alpha = 1)
+#plot(fv23c_three_cone_cv.out)
+fv23c_three_cone_bestlam <- fv23c_three_cone_cv.out$lambda.min
+#fv23c_three_cone_bestlam <- 1
+fv23c_three_cone_lasso.pred <- predict(fv23c_three_cone_lasso.mod, s = fv23c_three_cone_bestlam,
+    newx = fv23c_three_cone_x[fv23c_three_cone_test, ])
+mean((fv23c_three_cone_lasso.pred - fv23c_three_cone_y.test)^2)
+
+fv23c_three_cone_out <- glmnet(fv23c_three_cone_x, fv23c_three_cone_y, alpha = 1, lambda = fv23c_three_cone_bestlam )
+coef(fv23c_three_cone_out)
+fv23c_three_cone_lasso.coef <- predict(fv23c_three_cone_out, type = "coefficients",
+    s = fv23c_three_cone_bestlam)[1:(ncol(forty_2_three_cone)+2), ]
+fv23c_three_cone_lasso.coef
+fv23c_three_cone_lasso.coef[fv23c_three_cone_lasso.coef != 0]
+
+ggplot(forty_vertical_2_three_cone[-fv23c_three_cone_train,] %>% mutate(pred = fv23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+fv23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(forty) + scale(vertical), forty_vertical_2_three_cone)
+fv23c_three_cone_y_scale <- (forty_vertical_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+fv23c_three_cone_train <- sample(1:nrow(fv23c_three_cone_x_scale), .8*nrow(fv23c_three_cone_x_scale))
+fv23c_three_cone_test <- (-fv23c_three_cone_train)
+fv23c_three_cone_y.test_scale <- fv23c_three_cone_y_scale[fv23c_three_cone_test]
+
+fv23c_three_cone_lasso.mod_scale <- glmnet(fv23c_three_cone_x_scale[fv23c_three_cone_train, ], fv23c_three_cone_y_scale[fv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fv23c_three_cone_cv.out_scale <- cv.glmnet(fv23c_three_cone_x_scale[fv23c_three_cone_train, ], fv23c_three_cone_y_scale[fv23c_three_cone_train], alpha = 1)
+#plot(fv23c_three_cone_cv.out)
+fv23c_three_cone_bestlam_scale <- fv23c_three_cone_cv.out_scale$lambda.min
+#fv23c_three_cone_bestlam <- 1
+fv23c_three_cone_lasso.pred_scale <- predict(fv23c_three_cone_lasso.mod_scale, s = fv23c_three_cone_bestlam_scale,
+    newx = fv23c_three_cone_x_scale[fv23c_three_cone_test, ])
+mean((fv23c_three_cone_lasso.pred_scale - fv23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+forty_vertical_2_shuttle <- combineonly %>% select(forty, vertical, shuttle) %>% 
+  filter(!is.na(forty) & !is.na(vertical) & !is.na(shuttle))
+
+
+fv2s_shuttle_x <- model.matrix(shuttle ~ ., forty_vertical_2_shuttle)
+fv2s_shuttle_y <- forty_vertical_2_shuttle$shuttle
+fv2s_shuttle_x 
+mean(fv2s_shuttle_y)
+
+set.seed(2)
+fv2s_shuttle_train <- sample(1:nrow(fv2s_shuttle_x), .8*nrow(fv2s_shuttle_x))
+fv2s_shuttle_test <- (-fv2s_shuttle_train)
+fv2s_shuttle_y.test <- fv2s_shuttle_y[fv2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fv2s_shuttle_lasso.mod <- glmnet(fv2s_shuttle_x[fv2s_shuttle_train, ], fv2s_shuttle_y[fv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fv2s_shuttle_lasso.mod)
+
+set.seed(1)
+fv2s_shuttle_cv.out <- cv.glmnet(fv2s_shuttle_x[fv2s_shuttle_train, ], fv2s_shuttle_y[fv2s_shuttle_train], alpha = 1)
+#plot(fv2s_shuttle_cv.out)
+fv2s_shuttle_bestlam <- fv2s_shuttle_cv.out$lambda.min
+#fv2s_shuttle_bestlam <- 1
+fv2s_shuttle_lasso.pred <- predict(fv2s_shuttle_lasso.mod, s = fv2s_shuttle_bestlam,
+    newx = fv2s_shuttle_x[fv2s_shuttle_test, ])
+mean((fv2s_shuttle_lasso.pred - fv2s_shuttle_y.test)^2)
+
+fv2s_shuttle_out <- glmnet(fv2s_shuttle_x, fv2s_shuttle_y, alpha = 1, lambda = fv2s_shuttle_bestlam )
+coef(fv2s_shuttle_out)
+fv2s_shuttle_lasso.coef <- predict(fv2s_shuttle_out, type = "coefficients",
+    s = fv2s_shuttle_bestlam)[1:(ncol(forty_2_shuttle)+2), ]
+fv2s_shuttle_lasso.coef
+fv2s_shuttle_lasso.coef[fv2s_shuttle_lasso.coef != 0]
+
+ggplot(forty_vertical_2_shuttle[-fv2s_shuttle_train,] %>% mutate(pred = fv2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+fv2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(forty) + scale(vertical), forty_vertical_2_shuttle)
+fv2s_shuttle_y_scale <- (forty_vertical_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+fv2s_shuttle_train <- sample(1:nrow(fv2s_shuttle_x_scale), .8*nrow(fv2s_shuttle_x_scale))
+fv2s_shuttle_test <- (-fv2s_shuttle_train)
+fv2s_shuttle_y.test_scale <- fv2s_shuttle_y_scale[fv2s_shuttle_test]
+
+fv2s_shuttle_lasso.mod_scale <- glmnet(fv2s_shuttle_x_scale[fv2s_shuttle_train, ], fv2s_shuttle_y_scale[fv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fv2s_shuttle_cv.out_scale <- cv.glmnet(fv2s_shuttle_x_scale[fv2s_shuttle_train, ], fv2s_shuttle_y_scale[fv2s_shuttle_train], alpha = 1)
+#plot(fv2s_shuttle_cv.out)
+fv2s_shuttle_bestlam_scale <- fv2s_shuttle_cv.out_scale$lambda.min
+#fv2s_shuttle_bestlam <- 1
+fv2s_shuttle_lasso.pred_scale <- predict(fv2s_shuttle_lasso.mod_scale, s = fv2s_shuttle_bestlam_scale,
+    newx = fv2s_shuttle_x_scale[fv2s_shuttle_test, ])
+mean((fv2s_shuttle_lasso.pred_scale - fv2s_shuttle_y.test_scale)^2)
+```
+
+# If player only has forty and vertical predict broad jump
+```{r}
+update3 <- update2 %>% mutate(broad_jump = if_else(
+                           !is.na(forty) & !is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           fv2bj_broad_jump_lasso.coef[fv2bj_broad_jump_lasso.coef != 0][1] +
+                             fv2bj_broad_jump_lasso.coef[fv2bj_broad_jump_lasso.coef != 0][2] * forty +
+                             fv2bj_broad_jump_lasso.coef[fv2bj_broad_jump_lasso.coef != 0][3] * vertical,
+                           broad_jump
+                         )) 
+```
+
+# Use vertical and broad jump to predict
+```{r}
+broad_jump_vertical_2_forty <- combineonly %>% select(broad_jump, vertical, forty) %>% 
+  filter(!is.na(broad_jump) & !is.na(vertical) & !is.na(forty))
+
+
+bjv2f_forty_x <- model.matrix(forty ~ ., broad_jump_vertical_2_forty)
+bjv2f_forty_y <- broad_jump_vertical_2_forty$forty
+bjv2f_forty_x 
+mean(bjv2f_forty_y)
+
+set.seed(2)
+bjv2f_forty_train <- sample(1:nrow(bjv2f_forty_x), .8*nrow(bjv2f_forty_x))
+bjv2f_forty_test <- (-bjv2f_forty_train)
+bjv2f_forty_y.test <- bjv2f_forty_y[bjv2f_forty_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+bjv2f_forty_lasso.mod <- glmnet(bjv2f_forty_x[bjv2f_forty_train, ], bjv2f_forty_y[bjv2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(bjv2f_forty_lasso.mod)
+
+set.seed(1)
+bjv2f_forty_cv.out <- cv.glmnet(bjv2f_forty_x[bjv2f_forty_train, ], bjv2f_forty_y[bjv2f_forty_train], alpha = 1)
+#plot(bjv2f_forty_cv.out)
+bjv2f_forty_bestlam <- bjv2f_forty_cv.out$lambda.min
+#bjv2f_forty_bestlam <- 1
+bjv2f_forty_lasso.pred <- predict(bjv2f_forty_lasso.mod, s = bjv2f_forty_bestlam,
+    newx = bjv2f_forty_x[bjv2f_forty_test, ])
+mean((bjv2f_forty_lasso.pred - bjv2f_forty_y.test)^2)
+
+bjv2f_forty_out <- glmnet(bjv2f_forty_x, bjv2f_forty_y, alpha = 1, lambda = bjv2f_forty_bestlam )
+coef(bjv2f_forty_out)
+bjv2f_forty_lasso.coef <- predict(bjv2f_forty_out, type = "coefficients",
+    s = bjv2f_forty_bestlam)[1:(ncol(broad_jump_vertical_2_forty)+1), ]
+bjv2f_forty_lasso.coef
+bjv2f_forty_lasso.coef[bjv2f_forty_lasso.coef != 0]
+
+ggplot(broad_jump_vertical_2_forty[-bjv2f_forty_train,] %>% mutate(pred = bjv2f_forty_lasso.pred),
+       aes(x = pred, forty)) +
+  geom_point()
+
+
+
+bjv2f_forty_x_scale <- model.matrix(scale(forty) ~ scale(broad_jump) + scale(vertical), broad_jump_vertical_2_forty)
+bjv2f_forty_y_scale <- (broad_jump_vertical_2_forty %>% mutate(forty = scale(forty)))$forty
+
+set.seed(2)
+bjv2f_forty_train <- sample(1:nrow(bjv2f_forty_x_scale), .8*nrow(bjv2f_forty_x_scale))
+bjv2f_forty_test <- (-bjv2f_forty_train)
+bjv2f_forty_y.test_scale <- bjv2f_forty_y_scale[bjv2f_forty_test]
+
+bjv2f_forty_lasso.mod_scale <- glmnet(bjv2f_forty_x_scale[bjv2f_forty_train, ], bjv2f_forty_y_scale[bjv2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+bjv2f_forty_cv.out_scale <- cv.glmnet(bjv2f_forty_x_scale[bjv2f_forty_train, ], bjv2f_forty_y_scale[bjv2f_forty_train], alpha = 1)
+#plot(bjv2f_forty_cv.out)
+bjv2f_forty_bestlam_scale <- bjv2f_forty_cv.out_scale$lambda.min
+#bjv2f_forty_bestlam <- 1
+bjv2f_forty_lasso.pred_scale <- predict(bjv2f_forty_lasso.mod_scale, s = bjv2f_forty_bestlam_scale,
+    newx = bjv2f_forty_x_scale[bjv2f_forty_test, ])
+mean((bjv2f_forty_lasso.pred_scale - bjv2f_forty_y.test_scale)^2)
+```
+
+```{r}
+broad_jump_vertical_2_three_cone <- combineonly %>% select(broad_jump, vertical, three_cone) %>% 
+  filter(!is.na(broad_jump) & !is.na(vertical) & !is.na(three_cone))
+
+
+bjv23c_three_cone_x <- model.matrix(three_cone ~ ., broad_jump_vertical_2_three_cone)
+bjv23c_three_cone_y <- broad_jump_vertical_2_three_cone$three_cone
+bjv23c_three_cone_x 
+mean(bjv23c_three_cone_y)
+
+set.seed(2)
+bjv23c_three_cone_train <- sample(1:nrow(bjv23c_three_cone_x), .8*nrow(bjv23c_three_cone_x))
+bjv23c_three_cone_test <- (-bjv23c_three_cone_train)
+bjv23c_three_cone_y.test <- bjv23c_three_cone_y[bjv23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+bjv23c_three_cone_lasso.mod <- glmnet(bjv23c_three_cone_x[bjv23c_three_cone_train, ], bjv23c_three_cone_y[bjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(bjv23c_three_cone_lasso.mod)
+
+set.seed(1)
+bjv23c_three_cone_cv.out <- cv.glmnet(bjv23c_three_cone_x[bjv23c_three_cone_train, ], bjv23c_three_cone_y[bjv23c_three_cone_train], alpha = 1)
+#plot(bjv23c_three_cone_cv.out)
+bjv23c_three_cone_bestlam <- bjv23c_three_cone_cv.out$lambda.min
+#bjv23c_three_cone_bestlam <- 1
+bjv23c_three_cone_lasso.pred <- predict(bjv23c_three_cone_lasso.mod, s = bjv23c_three_cone_bestlam,
+    newx = bjv23c_three_cone_x[bjv23c_three_cone_test, ])
+mean((bjv23c_three_cone_lasso.pred - bjv23c_three_cone_y.test)^2)
+
+bjv23c_three_cone_out <- glmnet(bjv23c_three_cone_x, bjv23c_three_cone_y, alpha = 1, lambda = bjv23c_three_cone_bestlam )
+coef(bjv23c_three_cone_out)
+bjv23c_three_cone_lasso.coef <- predict(bjv23c_three_cone_out, type = "coefficients",
+    s = bjv23c_three_cone_bestlam)[1:(ncol(broad_jump_vertical_2_three_cone)+1), ]
+bjv23c_three_cone_lasso.coef
+bjv23c_three_cone_lasso.coef[bjv23c_three_cone_lasso.coef != 0]
+
+ggplot(broad_jump_vertical_2_three_cone[-bjv23c_three_cone_train,] %>% mutate(pred = bjv23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+bjv23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(broad_jump) + scale(vertical), broad_jump_vertical_2_three_cone)
+bjv23c_three_cone_y_scale <- (broad_jump_vertical_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+bjv23c_three_cone_train <- sample(1:nrow(bjv23c_three_cone_x_scale), .8*nrow(bjv23c_three_cone_x_scale))
+bjv23c_three_cone_test <- (-bjv23c_three_cone_train)
+bjv23c_three_cone_y.test_scale <- bjv23c_three_cone_y_scale[bjv23c_three_cone_test]
+
+bjv23c_three_cone_lasso.mod_scale <- glmnet(bjv23c_three_cone_x_scale[bjv23c_three_cone_train, ], bjv23c_three_cone_y_scale[bjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+bjv23c_three_cone_cv.out_scale <- cv.glmnet(bjv23c_three_cone_x_scale[bjv23c_three_cone_train, ], bjv23c_three_cone_y_scale[bjv23c_three_cone_train], alpha = 1)
+#plot(bjv23c_three_cone_cv.out)
+bjv23c_three_cone_bestlam_scale <- bjv23c_three_cone_cv.out_scale$lambda.min
+#bjv23c_three_cone_bestlam <- 1
+bjv23c_three_cone_lasso.pred_scale <- predict(bjv23c_three_cone_lasso.mod_scale, s = bjv23c_three_cone_bestlam_scale,
+    newx = bjv23c_three_cone_x_scale[bjv23c_three_cone_test, ])
+mean((bjv23c_three_cone_lasso.pred_scale - bjv23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+broad_jump_vertical_2_shuttle <- combineonly %>% select(broad_jump, vertical, shuttle) %>% 
+  filter(!is.na(broad_jump) & !is.na(vertical) & !is.na(shuttle))
+
+
+bjv2s_shuttle_x <- model.matrix(shuttle ~ ., broad_jump_vertical_2_shuttle)
+bjv2s_shuttle_y <- broad_jump_vertical_2_shuttle$shuttle
+bjv2s_shuttle_x 
+mean(bjv2s_shuttle_y)
+
+set.seed(2)
+bjv2s_shuttle_train <- sample(1:nrow(bjv2s_shuttle_x), .8*nrow(bjv2s_shuttle_x))
+bjv2s_shuttle_test <- (-bjv2s_shuttle_train)
+bjv2s_shuttle_y.test <- bjv2s_shuttle_y[bjv2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+bjv2s_shuttle_lasso.mod <- glmnet(bjv2s_shuttle_x[bjv2s_shuttle_train, ], bjv2s_shuttle_y[bjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(bjv2s_shuttle_lasso.mod)
+
+set.seed(1)
+bjv2s_shuttle_cv.out <- cv.glmnet(bjv2s_shuttle_x[bjv2s_shuttle_train, ], bjv2s_shuttle_y[bjv2s_shuttle_train], alpha = 1)
+#plot(bjv2s_shuttle_cv.out)
+bjv2s_shuttle_bestlam <- bjv2s_shuttle_cv.out$lambda.min
+#bjv2s_shuttle_bestlam <- 1
+bjv2s_shuttle_lasso.pred <- predict(bjv2s_shuttle_lasso.mod, s = bjv2s_shuttle_bestlam,
+    newx = bjv2s_shuttle_x[bjv2s_shuttle_test, ])
+mean((bjv2s_shuttle_lasso.pred - bjv2s_shuttle_y.test)^2)
+
+bjv2s_shuttle_out <- glmnet(bjv2s_shuttle_x, bjv2s_shuttle_y, alpha = 1, lambda = bjv2s_shuttle_bestlam )
+coef(bjv2s_shuttle_out)
+bjv2s_shuttle_lasso.coef <- predict(bjv2s_shuttle_out, type = "coefficients",
+    s = bjv2s_shuttle_bestlam)[1:(ncol(broad_jump_vertical_2_shuttle)+1), ]
+bjv2s_shuttle_lasso.coef
+bjv2s_shuttle_lasso.coef[bjv2s_shuttle_lasso.coef != 0]
+
+ggplot(broad_jump_vertical_2_shuttle[-bjv2s_shuttle_train,] %>% mutate(pred = bjv2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+bjv2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump) + scale(vertical), broad_jump_vertical_2_shuttle)
+bjv2s_shuttle_y_scale <- (broad_jump_vertical_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+bjv2s_shuttle_train <- sample(1:nrow(bjv2s_shuttle_x_scale), .8*nrow(bjv2s_shuttle_x_scale))
+bjv2s_shuttle_test <- (-bjv2s_shuttle_train)
+bjv2s_shuttle_y.test_scale <- bjv2s_shuttle_y_scale[bjv2s_shuttle_test]
+
+bjv2s_shuttle_lasso.mod_scale <- glmnet(bjv2s_shuttle_x_scale[bjv2s_shuttle_train, ], bjv2s_shuttle_y_scale[bjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+bjv2s_shuttle_cv.out_scale <- cv.glmnet(bjv2s_shuttle_x_scale[bjv2s_shuttle_train, ], bjv2s_shuttle_y_scale[bjv2s_shuttle_train], alpha = 1)
+#plot(bjv2s_shuttle_cv.out)
+bjv2s_shuttle_bestlam_scale <- bjv2s_shuttle_cv.out_scale$lambda.min
+#bjv2s_shuttle_bestlam <- 1
+bjv2s_shuttle_lasso.pred_scale <- predict(bjv2s_shuttle_lasso.mod_scale, s = bjv2s_shuttle_bestlam_scale,
+    newx = bjv2s_shuttle_x_scale[bjv2s_shuttle_test, ])
+mean((bjv2s_shuttle_lasso.pred_scale - bjv2s_shuttle_y.test_scale)^2)
+```
+
+# If player only has broad jump and vertical predict forty
+```{r}
+update4 <- update3 %>% mutate(forty = if_else(
+                           is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           bjv2f_forty_lasso.coef[bjv2f_forty_lasso.coef != 0][1] +
+                             bjv2f_forty_lasso.coef[bjv2f_forty_lasso.coef != 0][2] * broad_jump +
+                             bjv2f_forty_lasso.coef[bjv2f_forty_lasso.coef != 0][3] * vertical,
+                           forty
+                         )) 
+```
+
+# Use forty, vertical, broad jump to predict
+```{r}
+forty_broad_jump_vertical_2_three_cone <- combineonly %>% select(forty, broad_jump, vertical, three_cone) %>% 
+  filter(!is.na(forty) & !is.na(broad_jump) & !is.na(vertical) & !is.na(three_cone))
+
+
+fbjv23c_three_cone_x <- model.matrix(three_cone ~ ., forty_broad_jump_vertical_2_three_cone)
+fbjv23c_three_cone_y <- forty_broad_jump_vertical_2_three_cone$three_cone
+fbjv23c_three_cone_x 
+mean(fbjv23c_three_cone_y)
+
+set.seed(2)
+fbjv23c_three_cone_train <- sample(1:nrow(fbjv23c_three_cone_x), .8*nrow(fbjv23c_three_cone_x))
+fbjv23c_three_cone_test <- (-fbjv23c_three_cone_train)
+fbjv23c_three_cone_y.test <- fbjv23c_three_cone_y[fbjv23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fbjv23c_three_cone_lasso.mod <- glmnet(fbjv23c_three_cone_x[fbjv23c_three_cone_train, ], fbjv23c_three_cone_y[fbjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fbjv23c_three_cone_lasso.mod)
+
+set.seed(1)
+fbjv23c_three_cone_cv.out <- cv.glmnet(fbjv23c_three_cone_x[fbjv23c_three_cone_train, ], fbjv23c_three_cone_y[fbjv23c_three_cone_train], alpha = 1)
+#plot(fbjv23c_three_cone_cv.out)
+fbjv23c_three_cone_bestlam <- fbjv23c_three_cone_cv.out$lambda.min
+#fbjv23c_three_cone_bestlam <- 1
+fbjv23c_three_cone_lasso.pred <- predict(fbjv23c_three_cone_lasso.mod, s = fbjv23c_three_cone_bestlam,
+    newx = fbjv23c_three_cone_x[fbjv23c_three_cone_test, ])
+mean((fbjv23c_three_cone_lasso.pred - fbjv23c_three_cone_y.test)^2)
+
+fbjv23c_three_cone_out <- glmnet(fbjv23c_three_cone_x, fbjv23c_three_cone_y, alpha = 1, lambda = fbjv23c_three_cone_bestlam )
+coef(fbjv23c_three_cone_out)
+fbjv23c_three_cone_lasso.coef <- predict(fbjv23c_three_cone_out, type = "coefficients",
+    s = fbjv23c_three_cone_bestlam)[1:(ncol(forty_broad_jump_vertical_2_three_cone)+1), ]
+fbjv23c_three_cone_lasso.coef
+fbjv23c_three_cone_lasso.coef[fbjv23c_three_cone_lasso.coef != 0]
+
+ggplot(forty_broad_jump_vertical_2_three_cone[-fbjv23c_three_cone_train,] %>% mutate(pred = fbjv23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+fbjv23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(broad_jump) + scale(vertical), forty_broad_jump_vertical_2_three_cone)
+fbjv23c_three_cone_y_scale <- (forty_broad_jump_vertical_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+fbjv23c_three_cone_train <- sample(1:nrow(fbjv23c_three_cone_x_scale), .8*nrow(fbjv23c_three_cone_x_scale))
+fbjv23c_three_cone_test <- (-fbjv23c_three_cone_train)
+fbjv23c_three_cone_y.test_scale <- fbjv23c_three_cone_y_scale[fbjv23c_three_cone_test]
+
+fbjv23c_three_cone_lasso.mod_scale <- glmnet(fbjv23c_three_cone_x_scale[fbjv23c_three_cone_train, ], fbjv23c_three_cone_y_scale[fbjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fbjv23c_three_cone_cv.out_scale <- cv.glmnet(fbjv23c_three_cone_x_scale[fbjv23c_three_cone_train, ], fbjv23c_three_cone_y_scale[fbjv23c_three_cone_train], alpha = 1)
+#plot(fbjv23c_three_cone_cv.out)
+fbjv23c_three_cone_bestlam_scale <- fbjv23c_three_cone_cv.out_scale$lambda.min
+#fbjv23c_three_cone_bestlam <- 1
+fbjv23c_three_cone_lasso.pred_scale <- predict(fbjv23c_three_cone_lasso.mod_scale, s = fbjv23c_three_cone_bestlam_scale,
+    newx = fbjv23c_three_cone_x_scale[fbjv23c_three_cone_test, ])
+mean((fbjv23c_three_cone_lasso.pred_scale - fbjv23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+forty_broad_jump_vertical_2_shuttle <- combineonly %>% select(forty, broad_jump, vertical, shuttle) %>% 
+  filter(!is.na(forty) & !is.na(broad_jump) & !is.na(vertical) & !is.na(shuttle))
+
+
+fbjv2s_shuttle_x <- model.matrix(shuttle ~ ., forty_broad_jump_vertical_2_shuttle)
+fbjv2s_shuttle_y <- forty_broad_jump_vertical_2_shuttle$shuttle
+fbjv2s_shuttle_x 
+mean(fbjv2s_shuttle_y)
+
+set.seed(2)
+fbjv2s_shuttle_train <- sample(1:nrow(fbjv2s_shuttle_x), .8*nrow(fbjv2s_shuttle_x))
+fbjv2s_shuttle_test <- (-fbjv2s_shuttle_train)
+fbjv2s_shuttle_y.test <- fbjv2s_shuttle_y[fbjv2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fbjv2s_shuttle_lasso.mod <- glmnet(fbjv2s_shuttle_x[fbjv2s_shuttle_train, ], fbjv2s_shuttle_y[fbjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fbjv2s_shuttle_lasso.mod)
+
+set.seed(1)
+fbjv2s_shuttle_cv.out <- cv.glmnet(fbjv2s_shuttle_x[fbjv2s_shuttle_train, ], fbjv2s_shuttle_y[fbjv2s_shuttle_train], alpha = 1)
+#plot(fbjv2s_shuttle_cv.out)
+fbjv2s_shuttle_bestlam <- fbjv2s_shuttle_cv.out$lambda.min
+#fbjv2s_shuttle_bestlam <- 1
+fbjv2s_shuttle_lasso.pred <- predict(fbjv2s_shuttle_lasso.mod, s = fbjv2s_shuttle_bestlam,
+    newx = fbjv2s_shuttle_x[fbjv2s_shuttle_test, ])
+mean((fbjv2s_shuttle_lasso.pred - fbjv2s_shuttle_y.test)^2)
+
+fbjv2s_shuttle_out <- glmnet(fbjv2s_shuttle_x, fbjv2s_shuttle_y, alpha = 1, lambda = fbjv2s_shuttle_bestlam )
+coef(fbjv2s_shuttle_out)
+fbjv2s_shuttle_lasso.coef <- predict(fbjv2s_shuttle_out, type = "coefficients",
+    s = fbjv2s_shuttle_bestlam)[1:(ncol(forty_broad_jump_vertical_2_shuttle)+1), ]
+fbjv2s_shuttle_lasso.coef
+fbjv2s_shuttle_lasso.coef[fbjv2s_shuttle_lasso.coef != 0]
+
+ggplot(forty_broad_jump_vertical_2_shuttle[-fbjv2s_shuttle_train,] %>% mutate(pred = fbjv2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+fbjv2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump) + scale(vertical), forty_broad_jump_vertical_2_shuttle)
+fbjv2s_shuttle_y_scale <- (forty_broad_jump_vertical_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+fbjv2s_shuttle_train <- sample(1:nrow(fbjv2s_shuttle_x_scale), .8*nrow(fbjv2s_shuttle_x_scale))
+fbjv2s_shuttle_test <- (-fbjv2s_shuttle_train)
+fbjv2s_shuttle_y.test_scale <- fbjv2s_shuttle_y_scale[fbjv2s_shuttle_test]
+
+fbjv2s_shuttle_lasso.mod_scale <- glmnet(fbjv2s_shuttle_x_scale[fbjv2s_shuttle_train, ], fbjv2s_shuttle_y_scale[fbjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fbjv2s_shuttle_cv.out_scale <- cv.glmnet(fbjv2s_shuttle_x_scale[fbjv2s_shuttle_train, ], fbjv2s_shuttle_y_scale[fbjv2s_shuttle_train], alpha = 1)
+#plot(fbjv2s_shuttle_cv.out)
+fbjv2s_shuttle_bestlam_scale <- fbjv2s_shuttle_cv.out_scale$lambda.min
+#fbjv2s_shuttle_bestlam <- 1
+fbjv2s_shuttle_lasso.pred_scale <- predict(fbjv2s_shuttle_lasso.mod_scale, s = fbjv2s_shuttle_bestlam_scale,
+    newx = fbjv2s_shuttle_x_scale[fbjv2s_shuttle_test, ])
+mean((fbjv2s_shuttle_lasso.pred_scale - fbjv2s_shuttle_y.test_scale)^2)
+```
+
+# If player only has forty, broad jump and vertical predict three cone
+```{r}
+update5 <- update4 %>% mutate(three_cone = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           fbjv23c_three_cone_lasso.coef[fbjv23c_three_cone_lasso.coef != 0][1] +
+                             fbjv23c_three_cone_lasso.coef[fbjv23c_three_cone_lasso.coef != 0][2] * forty +
+                             fbjv23c_three_cone_lasso.coef[fbjv23c_three_cone_lasso.coef != 0][3] * broad_jump +
+                             fbjv23c_three_cone_lasso.coef[fbjv23c_three_cone_lasso.coef != 0][4] * vertical,
+                           three_cone
+                         )) 
+```
+
+# Use forty, three cone, and shuttle to predict
+```{r}
+forty_three_cone_shuttle_2_vertical <- combineonly %>% select(forty, three_cone, shuttle, vertical) %>% 
+  filter(!is.na(forty) & !is.na(three_cone) & !is.na(shuttle) & !is.na(vertical))
+
+
+f3cs2v_vertical_x <- model.matrix(vertical ~ ., forty_three_cone_shuttle_2_vertical)
+f3cs2v_vertical_y <- forty_three_cone_shuttle_2_vertical$vertical
+f3cs2v_vertical_x 
+mean(f3cs2v_vertical_y)
+
+set.seed(2)
+f3cs2v_vertical_train <- sample(1:nrow(f3cs2v_vertical_x), .8*nrow(f3cs2v_vertical_x))
+f3cs2v_vertical_test <- (-f3cs2v_vertical_train)
+f3cs2v_vertical_y.test <- f3cs2v_vertical_y[f3cs2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f3cs2v_vertical_lasso.mod <- glmnet(f3cs2v_vertical_x[f3cs2v_vertical_train, ], f3cs2v_vertical_y[f3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f3cs2v_vertical_lasso.mod)
+
+set.seed(1)
+f3cs2v_vertical_cv.out <- cv.glmnet(f3cs2v_vertical_x[f3cs2v_vertical_train, ], f3cs2v_vertical_y[f3cs2v_vertical_train], alpha = 1)
+#plot(f3cs2v_vertical_cv.out)
+f3cs2v_vertical_bestlam <- f3cs2v_vertical_cv.out$lambda.min
+#f3cs2v_vertical_bestlam <- 1
+f3cs2v_vertical_lasso.pred <- predict(f3cs2v_vertical_lasso.mod, s = f3cs2v_vertical_bestlam,
+    newx = f3cs2v_vertical_x[f3cs2v_vertical_test, ])
+mean((f3cs2v_vertical_lasso.pred - f3cs2v_vertical_y.test)^2)
+
+f3cs2v_vertical_out <- glmnet(f3cs2v_vertical_x, f3cs2v_vertical_y, alpha = 1, lambda = f3cs2v_vertical_bestlam )
+coef(f3cs2v_vertical_out)
+f3cs2v_vertical_lasso.coef <- predict(f3cs2v_vertical_out, type = "coefficients",
+    s = f3cs2v_vertical_bestlam)[1:(ncol(forty_three_cone_shuttle_2_vertical)+1), ]
+f3cs2v_vertical_lasso.coef
+f3cs2v_vertical_lasso.coef[f3cs2v_vertical_lasso.coef != 0]
+
+ggplot(forty_three_cone_shuttle_2_vertical[-f3cs2v_vertical_train,] %>% mutate(pred = f3cs2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+f3cs2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(three_cone) + scale(shuttle), forty_three_cone_shuttle_2_vertical)
+f3cs2v_vertical_y_scale <- (forty_three_cone_shuttle_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+f3cs2v_vertical_train <- sample(1:nrow(f3cs2v_vertical_x_scale), .8*nrow(f3cs2v_vertical_x_scale))
+f3cs2v_vertical_test <- (-f3cs2v_vertical_train)
+f3cs2v_vertical_y.test_scale <- f3cs2v_vertical_y_scale[f3cs2v_vertical_test]
+
+f3cs2v_vertical_lasso.mod_scale <- glmnet(f3cs2v_vertical_x_scale[f3cs2v_vertical_train, ], f3cs2v_vertical_y_scale[f3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f3cs2v_vertical_cv.out_scale <- cv.glmnet(f3cs2v_vertical_x_scale[f3cs2v_vertical_train, ], f3cs2v_vertical_y_scale[f3cs2v_vertical_train], alpha = 1)
+#plot(f3cs2v_vertical_cv.out)
+f3cs2v_vertical_bestlam_scale <- f3cs2v_vertical_cv.out_scale$lambda.min
+#f3cs2v_vertical_bestlam <- 1
+f3cs2v_vertical_lasso.pred_scale <- predict(f3cs2v_vertical_lasso.mod_scale, s = f3cs2v_vertical_bestlam_scale,
+    newx = f3cs2v_vertical_x_scale[f3cs2v_vertical_test, ])
+mean((f3cs2v_vertical_lasso.pred_scale - f3cs2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+forty_three_cone_shuttle_2_broad_jump <- combineonly %>% select(forty, three_cone, shuttle, broad_jump) %>% 
+  filter(!is.na(forty) & !is.na(three_cone) & !is.na(shuttle) & !is.na(broad_jump))
+
+
+f3cs2bj_broad_jump_x <- model.matrix(broad_jump ~ ., forty_three_cone_shuttle_2_broad_jump)
+f3cs2bj_broad_jump_y <- forty_three_cone_shuttle_2_broad_jump$broad_jump
+f3cs2bj_broad_jump_x 
+mean(f3cs2bj_broad_jump_y)
+
+set.seed(2)
+f3cs2bj_broad_jump_train <- sample(1:nrow(f3cs2bj_broad_jump_x), .8*nrow(f3cs2bj_broad_jump_x))
+f3cs2bj_broad_jump_test <- (-f3cs2bj_broad_jump_train)
+f3cs2bj_broad_jump_y.test <- f3cs2bj_broad_jump_y[f3cs2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f3cs2bj_broad_jump_lasso.mod <- glmnet(f3cs2bj_broad_jump_x[f3cs2bj_broad_jump_train, ], f3cs2bj_broad_jump_y[f3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f3cs2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+f3cs2bj_broad_jump_cv.out <- cv.glmnet(f3cs2bj_broad_jump_x[f3cs2bj_broad_jump_train, ], f3cs2bj_broad_jump_y[f3cs2bj_broad_jump_train], alpha = 1)
+#plot(f3cs2bj_broad_jump_cv.out)
+f3cs2bj_broad_jump_bestlam <- f3cs2bj_broad_jump_cv.out$lambda.min
+#f3cs2bj_broad_jump_bestlam <- 1
+f3cs2bj_broad_jump_lasso.pred <- predict(f3cs2bj_broad_jump_lasso.mod, s = f3cs2bj_broad_jump_bestlam,
+    newx = f3cs2bj_broad_jump_x[f3cs2bj_broad_jump_test, ])
+mean((f3cs2bj_broad_jump_lasso.pred - f3cs2bj_broad_jump_y.test)^2)
+
+f3cs2bj_broad_jump_out <- glmnet(f3cs2bj_broad_jump_x, f3cs2bj_broad_jump_y, alpha = 1, lambda = f3cs2bj_broad_jump_bestlam )
+coef(f3cs2bj_broad_jump_out)
+f3cs2bj_broad_jump_lasso.coef <- predict(f3cs2bj_broad_jump_out, type = "coefficients",
+    s = f3cs2bj_broad_jump_bestlam)[1:(ncol(forty_three_cone_shuttle_2_broad_jump)+1), ]
+f3cs2bj_broad_jump_lasso.coef
+f3cs2bj_broad_jump_lasso.coef[f3cs2bj_broad_jump_lasso.coef != 0]
+
+ggplot(forty_three_cone_shuttle_2_broad_jump[-f3cs2bj_broad_jump_train,] %>% mutate(pred = f3cs2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+f3cs2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(three_cone) + scale(shuttle), forty_three_cone_shuttle_2_broad_jump)
+f3cs2bj_broad_jump_y_scale <- (forty_three_cone_shuttle_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+f3cs2bj_broad_jump_train <- sample(1:nrow(f3cs2bj_broad_jump_x_scale), .8*nrow(f3cs2bj_broad_jump_x_scale))
+f3cs2bj_broad_jump_test <- (-f3cs2bj_broad_jump_train)
+f3cs2bj_broad_jump_y.test_scale <- f3cs2bj_broad_jump_y_scale[f3cs2bj_broad_jump_test]
+
+f3cs2bj_broad_jump_lasso.mod_scale <- glmnet(f3cs2bj_broad_jump_x_scale[f3cs2bj_broad_jump_train, ], f3cs2bj_broad_jump_y_scale[f3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f3cs2bj_broad_jump_cv.out_scale <- cv.glmnet(f3cs2bj_broad_jump_x_scale[f3cs2bj_broad_jump_train, ], f3cs2bj_broad_jump_y_scale[f3cs2bj_broad_jump_train], alpha = 1)
+#plot(f3cs2bj_broad_jump_cv.out)
+f3cs2bj_broad_jump_bestlam_scale <- f3cs2bj_broad_jump_cv.out_scale$lambda.min
+#f3cs2bj_broad_jump_bestlam <- 1
+f3cs2bj_broad_jump_lasso.pred_scale <- predict(f3cs2bj_broad_jump_lasso.mod_scale, s = f3cs2bj_broad_jump_bestlam_scale,
+    newx = f3cs2bj_broad_jump_x_scale[f3cs2bj_broad_jump_test, ])
+mean((f3cs2bj_broad_jump_lasso.pred_scale - f3cs2bj_broad_jump_y.test_scale)^2)
+```
+
+# Use forty, 3 cone and shuttle to predict vertical
+```{r}
+update6 <- update5 %>% mutate(vertical = if_else(
+                           !is.na(forty) & is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle),
+                           f3cs2v_vertical_lasso.coef[f3cs2v_vertical_lasso.coef != 0][1] +
+                             f3cs2v_vertical_lasso.coef[f3cs2v_vertical_lasso.coef != 0][2] * forty +
+                             f3cs2v_vertical_lasso.coef[f3cs2v_vertical_lasso.coef != 0][3] * three_cone +
+                             f3cs2v_vertical_lasso.coef[f3cs2v_vertical_lasso.coef != 0][4] * shuttle,
+                           vertical
+                         )) 
+```
+
+# Vertical, broad jump and three cone to predict
+```{r}
+vertical_broad_jump_three_cone_2_forty <- combineonly %>% select(vertical, broad_jump, three_cone, forty) %>% 
+  filter(!is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(forty))
+
+
+vbj3c2f_forty_x <- model.matrix(forty ~ ., vertical_broad_jump_three_cone_2_forty)
+vbj3c2f_forty_y <- vertical_broad_jump_three_cone_2_forty$forty
+vbj3c2f_forty_x 
+mean(vbj3c2f_forty_y)
+
+set.seed(2)
+vbj3c2f_forty_train <- sample(1:nrow(vbj3c2f_forty_x), .8*nrow(vbj3c2f_forty_x))
+vbj3c2f_forty_test <- (-vbj3c2f_forty_train)
+vbj3c2f_forty_y.test <- vbj3c2f_forty_y[vbj3c2f_forty_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+vbj3c2f_forty_lasso.mod <- glmnet(vbj3c2f_forty_x[vbj3c2f_forty_train, ], vbj3c2f_forty_y[vbj3c2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(vbj3c2f_forty_lasso.mod)
+
+set.seed(1)
+vbj3c2f_forty_cv.out <- cv.glmnet(vbj3c2f_forty_x[vbj3c2f_forty_train, ], vbj3c2f_forty_y[vbj3c2f_forty_train], alpha = 1)
+#plot(vbj3c2f_forty_cv.out)
+vbj3c2f_forty_bestlam <- vbj3c2f_forty_cv.out$lambda.min
+#vbj3c2f_forty_bestlam <- 1
+vbj3c2f_forty_lasso.pred <- predict(vbj3c2f_forty_lasso.mod, s = vbj3c2f_forty_bestlam,
+    newx = vbj3c2f_forty_x[vbj3c2f_forty_test, ])
+mean((vbj3c2f_forty_lasso.pred - vbj3c2f_forty_y.test)^2)
+
+vbj3c2f_forty_out <- glmnet(vbj3c2f_forty_x, vbj3c2f_forty_y, alpha = 1, lambda = vbj3c2f_forty_bestlam )
+coef(vbj3c2f_forty_out)
+vbj3c2f_forty_lasso.coef <- predict(vbj3c2f_forty_out, type = "coefficients",
+    s = vbj3c2f_forty_bestlam)[1:(ncol(vertical_broad_jump_three_cone_2_forty)+1), ]
+vbj3c2f_forty_lasso.coef
+vbj3c2f_forty_lasso.coef[vbj3c2f_forty_lasso.coef != 0]
+
+ggplot(vertical_broad_jump_three_cone_2_forty[-vbj3c2f_forty_train,] %>% mutate(pred = vbj3c2f_forty_lasso.pred),
+       aes(x = pred, forty)) +
+  geom_point()
+
+
+
+vbj3c2f_forty_x_scale <- model.matrix(scale(forty) ~ scale(broad_jump) + scale(three_cone), vertical_broad_jump_three_cone_2_forty)
+vbj3c2f_forty_y_scale <- (vertical_broad_jump_three_cone_2_forty %>% mutate(forty = scale(forty)))$forty
+
+set.seed(2)
+vbj3c2f_forty_train <- sample(1:nrow(vbj3c2f_forty_x_scale), .8*nrow(vbj3c2f_forty_x_scale))
+vbj3c2f_forty_test <- (-vbj3c2f_forty_train)
+vbj3c2f_forty_y.test_scale <- vbj3c2f_forty_y_scale[vbj3c2f_forty_test]
+
+vbj3c2f_forty_lasso.mod_scale <- glmnet(vbj3c2f_forty_x_scale[vbj3c2f_forty_train, ], vbj3c2f_forty_y_scale[vbj3c2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+vbj3c2f_forty_cv.out_scale <- cv.glmnet(vbj3c2f_forty_x_scale[vbj3c2f_forty_train, ], vbj3c2f_forty_y_scale[vbj3c2f_forty_train], alpha = 1)
+#plot(vbj3c2f_forty_cv.out)
+vbj3c2f_forty_bestlam_scale <- vbj3c2f_forty_cv.out_scale$lambda.min
+#vbj3c2f_forty_bestlam <- 1
+vbj3c2f_forty_lasso.pred_scale <- predict(vbj3c2f_forty_lasso.mod_scale, s = vbj3c2f_forty_bestlam_scale,
+    newx = vbj3c2f_forty_x_scale[vbj3c2f_forty_test, ])
+mean((vbj3c2f_forty_lasso.pred_scale - vbj3c2f_forty_y.test_scale)^2)
+```
+
+```{r}
+vertical_broad_jump_three_cone_2_shuttle <- combineonly %>% select(vertical, broad_jump, three_cone, shuttle) %>% 
+  filter(!is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+
+
+vbj3c2s_shuttle_x <- model.matrix(shuttle ~ ., vertical_broad_jump_three_cone_2_shuttle)
+vbj3c2s_shuttle_y <- vertical_broad_jump_three_cone_2_shuttle$shuttle
+vbj3c2s_shuttle_x 
+mean(vbj3c2s_shuttle_y)
+
+set.seed(2)
+vbj3c2s_shuttle_train <- sample(1:nrow(vbj3c2s_shuttle_x), .8*nrow(vbj3c2s_shuttle_x))
+vbj3c2s_shuttle_test <- (-vbj3c2s_shuttle_train)
+vbj3c2s_shuttle_y.test <- vbj3c2s_shuttle_y[vbj3c2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+vbj3c2s_shuttle_lasso.mod <- glmnet(vbj3c2s_shuttle_x[vbj3c2s_shuttle_train, ], vbj3c2s_shuttle_y[vbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(vbj3c2s_shuttle_lasso.mod)
+
+set.seed(1)
+vbj3c2s_shuttle_cv.out <- cv.glmnet(vbj3c2s_shuttle_x[vbj3c2s_shuttle_train, ], vbj3c2s_shuttle_y[vbj3c2s_shuttle_train], alpha = 1)
+#plot(vbj3c2s_shuttle_cv.out)
+vbj3c2s_shuttle_bestlam <- vbj3c2s_shuttle_cv.out$lambda.min
+#vbj3c2s_shuttle_bestlam <- 1
+vbj3c2s_shuttle_lasso.pred <- predict(vbj3c2s_shuttle_lasso.mod, s = vbj3c2s_shuttle_bestlam,
+    newx = vbj3c2s_shuttle_x[vbj3c2s_shuttle_test, ])
+mean((vbj3c2s_shuttle_lasso.pred - vbj3c2s_shuttle_y.test)^2)
+
+vbj3c2s_shuttle_out <- glmnet(vbj3c2s_shuttle_x, vbj3c2s_shuttle_y, alpha = 1, lambda = vbj3c2s_shuttle_bestlam )
+coef(vbj3c2s_shuttle_out)
+vbj3c2s_shuttle_lasso.coef <- predict(vbj3c2s_shuttle_out, type = "coefficients",
+    s = vbj3c2s_shuttle_bestlam)[1:(ncol(vertical_broad_jump_three_cone_2_shuttle)+1), ]
+vbj3c2s_shuttle_lasso.coef
+vbj3c2s_shuttle_lasso.coef[vbj3c2s_shuttle_lasso.coef != 0]
+
+ggplot(vertical_broad_jump_three_cone_2_shuttle[-vbj3c2s_shuttle_train,] %>% mutate(pred = vbj3c2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+vbj3c2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump) + scale(three_cone), vertical_broad_jump_three_cone_2_shuttle)
+vbj3c2s_shuttle_y_scale <- (vertical_broad_jump_three_cone_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+vbj3c2s_shuttle_train <- sample(1:nrow(vbj3c2s_shuttle_x_scale), .8*nrow(vbj3c2s_shuttle_x_scale))
+vbj3c2s_shuttle_test <- (-vbj3c2s_shuttle_train)
+vbj3c2s_shuttle_y.test_scale <- vbj3c2s_shuttle_y_scale[vbj3c2s_shuttle_test]
+
+vbj3c2s_shuttle_lasso.mod_scale <- glmnet(vbj3c2s_shuttle_x_scale[vbj3c2s_shuttle_train, ], vbj3c2s_shuttle_y_scale[vbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+vbj3c2s_shuttle_cv.out_scale <- cv.glmnet(vbj3c2s_shuttle_x_scale[vbj3c2s_shuttle_train, ], vbj3c2s_shuttle_y_scale[vbj3c2s_shuttle_train], alpha = 1)
+#plot(vbj3c2s_shuttle_cv.out)
+vbj3c2s_shuttle_bestlam_scale <- vbj3c2s_shuttle_cv.out_scale$lambda.min
+#vbj3c2s_shuttle_bestlam <- 1
+vbj3c2s_shuttle_lasso.pred_scale <- predict(vbj3c2s_shuttle_lasso.mod_scale, s = vbj3c2s_shuttle_bestlam_scale,
+    newx = vbj3c2s_shuttle_x_scale[vbj3c2s_shuttle_test, ])
+mean((vbj3c2s_shuttle_lasso.pred_scale - vbj3c2s_shuttle_y.test_scale)^2)
+```
+
+# Use vertical, broad jump and three cone to predict shuttle
+```{r}
+update7 <- update6 %>% mutate(shuttle = if_else(
+                           is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle),
+                           vbj3c2s_shuttle_lasso.coef[vbj3c2s_shuttle_lasso.coef != 0][1] +
+                             vbj3c2s_shuttle_lasso.coef[vbj3c2s_shuttle_lasso.coef != 0][2] * vertical +
+                             vbj3c2s_shuttle_lasso.coef[vbj3c2s_shuttle_lasso.coef != 0][3] * broad_jump +
+                             vbj3c2s_shuttle_lasso.coef[vbj3c2s_shuttle_lasso.coef != 0][4] * three_cone,
+                           shuttle
+                         )) 
+```
+
+# Use forty, vertical, broad jump and three cone to predict shuttle
+```{r}
+forty_vertical_broad_jump_three_cone_2_shuttle <- combineonly %>% select(forty, vertical, broad_jump, three_cone, shuttle) %>% 
+  filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle))
+
+
+fvbj3c2s_shuttle_x <- model.matrix(shuttle ~ ., forty_vertical_broad_jump_three_cone_2_shuttle)
+fvbj3c2s_shuttle_y <- forty_vertical_broad_jump_three_cone_2_shuttle$shuttle
+fvbj3c2s_shuttle_x 
+mean(fvbj3c2s_shuttle_y)
+
+set.seed(2)
+fvbj3c2s_shuttle_train <- sample(1:nrow(fvbj3c2s_shuttle_x), .8*nrow(fvbj3c2s_shuttle_x))
+fvbj3c2s_shuttle_test <- (-fvbj3c2s_shuttle_train)
+fvbj3c2s_shuttle_y.test <- fvbj3c2s_shuttle_y[fvbj3c2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fvbj3c2s_shuttle_lasso.mod <- glmnet(fvbj3c2s_shuttle_x[fvbj3c2s_shuttle_train, ], fvbj3c2s_shuttle_y[fvbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fvbj3c2s_shuttle_lasso.mod)
+
+set.seed(1)
+fvbj3c2s_shuttle_cv.out <- cv.glmnet(fvbj3c2s_shuttle_x[fvbj3c2s_shuttle_train, ], fvbj3c2s_shuttle_y[fvbj3c2s_shuttle_train], alpha = 1)
+#plot(fvbj3c2s_shuttle_cv.out)
+fvbj3c2s_shuttle_bestlam <- fvbj3c2s_shuttle_cv.out$lambda.min
+#fvbj3c2s_shuttle_bestlam <- 1
+fvbj3c2s_shuttle_lasso.pred <- predict(fvbj3c2s_shuttle_lasso.mod, s = fvbj3c2s_shuttle_bestlam,
+    newx = fvbj3c2s_shuttle_x[fvbj3c2s_shuttle_test, ])
+mean((fvbj3c2s_shuttle_lasso.pred - fvbj3c2s_shuttle_y.test)^2)
+
+fvbj3c2s_shuttle_out <- glmnet(fvbj3c2s_shuttle_x, fvbj3c2s_shuttle_y, alpha = 1, lambda = fvbj3c2s_shuttle_bestlam )
+coef(fvbj3c2s_shuttle_out)
+fvbj3c2s_shuttle_lasso.coef <- predict(fvbj3c2s_shuttle_out, type = "coefficients",
+    s = fvbj3c2s_shuttle_bestlam)[1:(ncol(forty_vertical_broad_jump_three_cone_2_shuttle)+1), ]
+fvbj3c2s_shuttle_lasso.coef
+fvbj3c2s_shuttle_lasso.coef[fvbj3c2s_shuttle_lasso.coef != 0]
+
+ggplot(forty_vertical_broad_jump_three_cone_2_shuttle[-fvbj3c2s_shuttle_train,] %>% mutate(pred = fvbj3c2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+fvbj3c2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump) + scale(three_cone), forty_vertical_broad_jump_three_cone_2_shuttle)
+fvbj3c2s_shuttle_y_scale <- (forty_vertical_broad_jump_three_cone_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+fvbj3c2s_shuttle_train <- sample(1:nrow(fvbj3c2s_shuttle_x_scale), .8*nrow(fvbj3c2s_shuttle_x_scale))
+fvbj3c2s_shuttle_test <- (-fvbj3c2s_shuttle_train)
+fvbj3c2s_shuttle_y.test_scale <- fvbj3c2s_shuttle_y_scale[fvbj3c2s_shuttle_test]
+
+fvbj3c2s_shuttle_lasso.mod_scale <- glmnet(fvbj3c2s_shuttle_x_scale[fvbj3c2s_shuttle_train, ], fvbj3c2s_shuttle_y_scale[fvbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fvbj3c2s_shuttle_cv.out_scale <- cv.glmnet(fvbj3c2s_shuttle_x_scale[fvbj3c2s_shuttle_train, ], fvbj3c2s_shuttle_y_scale[fvbj3c2s_shuttle_train], alpha = 1)
+#plot(fvbj3c2s_shuttle_cv.out)
+fvbj3c2s_shuttle_bestlam_scale <- fvbj3c2s_shuttle_cv.out_scale$lambda.min
+#fvbj3c2s_shuttle_bestlam <- 1
+fvbj3c2s_shuttle_lasso.pred_scale <- predict(fvbj3c2s_shuttle_lasso.mod_scale, s = fvbj3c2s_shuttle_bestlam_scale,
+    newx = fvbj3c2s_shuttle_x_scale[fvbj3c2s_shuttle_test, ])
+mean((fvbj3c2s_shuttle_lasso.pred_scale - fvbj3c2s_shuttle_y.test_scale)^2)
+```
+
+# Use vertical, broad jump and three cone to predict shuttle
+```{r}
+update8 <- update7 %>% mutate(shuttle = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle),
+                           fvbj3c2s_shuttle_lasso.coef[fvbj3c2s_shuttle_lasso.coef != 0][1] +
+                             fvbj3c2s_shuttle_lasso.coef[fvbj3c2s_shuttle_lasso.coef != 0][2] * forty +
+                             fvbj3c2s_shuttle_lasso.coef[fvbj3c2s_shuttle_lasso.coef != 0][3] * three_cone,
+                           shuttle
+                         )) 
+```
+
+# Use forty, vertical, broad jump and three_cone to predict three cone
+```{r}
+forty_vertical_broad_jump_shuttle_2_three_cone <- combineonly %>% select(forty, vertical, broad_jump, shuttle, three_cone) %>% 
+  filter(!is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(shuttle) & !is.na(three_cone))
+
+
+fvbjs23c_three_cone_x <- model.matrix(three_cone ~ ., forty_vertical_broad_jump_shuttle_2_three_cone)
+fvbjs23c_three_cone_y <- forty_vertical_broad_jump_shuttle_2_three_cone$three_cone
+fvbjs23c_three_cone_x 
+mean(fvbjs23c_three_cone_y)
+
+set.seed(2)
+fvbjs23c_three_cone_train <- sample(1:nrow(fvbjs23c_three_cone_x), .8*nrow(fvbjs23c_three_cone_x))
+fvbjs23c_three_cone_test <- (-fvbjs23c_three_cone_train)
+fvbjs23c_three_cone_y.test <- fvbjs23c_three_cone_y[fvbjs23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fvbjs23c_three_cone_lasso.mod <- glmnet(fvbjs23c_three_cone_x[fvbjs23c_three_cone_train, ], fvbjs23c_three_cone_y[fvbjs23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fvbjs23c_three_cone_lasso.mod)
+
+set.seed(1)
+fvbjs23c_three_cone_cv.out <- cv.glmnet(fvbjs23c_three_cone_x[fvbjs23c_three_cone_train, ], fvbjs23c_three_cone_y[fvbjs23c_three_cone_train], alpha = 1)
+#plot(fvbjs23c_three_cone_cv.out)
+fvbjs23c_three_cone_bestlam <- fvbjs23c_three_cone_cv.out$lambda.min
+#fvbjs23c_three_cone_bestlam <- 1
+fvbjs23c_three_cone_lasso.pred <- predict(fvbjs23c_three_cone_lasso.mod, s = fvbjs23c_three_cone_bestlam,
+    newx = fvbjs23c_three_cone_x[fvbjs23c_three_cone_test, ])
+mean((fvbjs23c_three_cone_lasso.pred - fvbjs23c_three_cone_y.test)^2)
+
+fvbjs23c_three_cone_out <- glmnet(fvbjs23c_three_cone_x, fvbjs23c_three_cone_y, alpha = 1, lambda = fvbjs23c_three_cone_bestlam )
+coef(fvbjs23c_three_cone_out)
+fvbjs23c_three_cone_lasso.coef <- predict(fvbjs23c_three_cone_out, type = "coefficients",
+    s = fvbjs23c_three_cone_bestlam)[1:(ncol(forty_vertical_broad_jump_shuttle_2_three_cone)+1), ]
+fvbjs23c_three_cone_lasso.coef
+fvbjs23c_three_cone_lasso.coef[fvbjs23c_three_cone_lasso.coef != 0]
+
+ggplot(forty_vertical_broad_jump_shuttle_2_three_cone[-fvbjs23c_three_cone_train,] %>% mutate(pred = fvbjs23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+fvbjs23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(broad_jump) + scale(shuttle), forty_vertical_broad_jump_shuttle_2_three_cone)
+fvbjs23c_three_cone_y_scale <- (forty_vertical_broad_jump_shuttle_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+fvbjs23c_three_cone_train <- sample(1:nrow(fvbjs23c_three_cone_x_scale), .8*nrow(fvbjs23c_three_cone_x_scale))
+fvbjs23c_three_cone_test <- (-fvbjs23c_three_cone_train)
+fvbjs23c_three_cone_y.test_scale <- fvbjs23c_three_cone_y_scale[fvbjs23c_three_cone_test]
+
+fvbjs23c_three_cone_lasso.mod_scale <- glmnet(fvbjs23c_three_cone_x_scale[fvbjs23c_three_cone_train, ], fvbjs23c_three_cone_y_scale[fvbjs23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fvbjs23c_three_cone_cv.out_scale <- cv.glmnet(fvbjs23c_three_cone_x_scale[fvbjs23c_three_cone_train, ], fvbjs23c_three_cone_y_scale[fvbjs23c_three_cone_train], alpha = 1)
+#plot(fvbjs23c_three_cone_cv.out)
+fvbjs23c_three_cone_bestlam_scale <- fvbjs23c_three_cone_cv.out_scale$lambda.min
+#fvbjs23c_three_cone_bestlam <- 1
+fvbjs23c_three_cone_lasso.pred_scale <- predict(fvbjs23c_three_cone_lasso.mod_scale, s = fvbjs23c_three_cone_bestlam_scale,
+    newx = fvbjs23c_three_cone_x_scale[fvbjs23c_three_cone_test, ])
+mean((fvbjs23c_three_cone_lasso.pred_scale - fvbjs23c_three_cone_y.test_scale)^2)
+```
+
+# Use vertical, broad jump and three cone to predict three_cone
+```{r}
+update9 <- update8 %>% mutate(three_cone = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(shuttle) & is.na(three_cone),
+                           fvbjs23c_three_cone_lasso.coef[fvbjs23c_three_cone_lasso.coef != 0][1] +
+                             fvbjs23c_three_cone_lasso.coef[fvbjs23c_three_cone_lasso.coef != 0][2] * forty +
+                             fvbjs23c_three_cone_lasso.coef[fvbjs23c_three_cone_lasso.coef != 0][3] * vertical +
+                             fvbjs23c_three_cone_lasso.coef[fvbjs23c_three_cone_lasso.coef != 0][4] * broad_jump +
+                             fvbjs23c_three_cone_lasso.coef[fvbjs23c_three_cone_lasso.coef != 0][5] * shuttle,
+                           three_cone
+                         )) 
+```
+
+# Use forty, vertical, three_cone and shuttle to predict broad jump
+```{r}
+forty_vertical_three_cone_shuttle_2_broad_jump <- combineonly %>% select(forty, vertical, three_cone, shuttle, broad_jump) %>% 
+  filter(!is.na(forty) & !is.na(vertical) & !is.na(three_cone) & !is.na(shuttle) & !is.na(broad_jump))
+
+
+f2v3cs2bj_broad_jump_x <- model.matrix(broad_jump ~ ., forty_vertical_three_cone_shuttle_2_broad_jump)
+f2v3cs2bj_broad_jump_y <- forty_vertical_three_cone_shuttle_2_broad_jump$broad_jump
+f2v3cs2bj_broad_jump_x 
+mean(f2v3cs2bj_broad_jump_y)
+
+set.seed(2)
+f2v3cs2bj_broad_jump_train <- sample(1:nrow(f2v3cs2bj_broad_jump_x), .8*nrow(f2v3cs2bj_broad_jump_x))
+f2v3cs2bj_broad_jump_test <- (-f2v3cs2bj_broad_jump_train)
+f2v3cs2bj_broad_jump_y.test <- f2v3cs2bj_broad_jump_y[f2v3cs2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+f2v3cs2bj_broad_jump_lasso.mod <- glmnet(f2v3cs2bj_broad_jump_x[f2v3cs2bj_broad_jump_train, ], f2v3cs2bj_broad_jump_y[f2v3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(f2v3cs2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+f2v3cs2bj_broad_jump_cv.out <- cv.glmnet(f2v3cs2bj_broad_jump_x[f2v3cs2bj_broad_jump_train, ], f2v3cs2bj_broad_jump_y[f2v3cs2bj_broad_jump_train], alpha = 1)
+#plot(f2v3cs2bj_broad_jump_cv.out)
+f2v3cs2bj_broad_jump_bestlam <- f2v3cs2bj_broad_jump_cv.out$lambda.min
+#f2v3cs2bj_broad_jump_bestlam <- 1
+f2v3cs2bj_broad_jump_lasso.pred <- predict(f2v3cs2bj_broad_jump_lasso.mod, s = f2v3cs2bj_broad_jump_bestlam,
+    newx = f2v3cs2bj_broad_jump_x[f2v3cs2bj_broad_jump_test, ])
+mean((f2v3cs2bj_broad_jump_lasso.pred - f2v3cs2bj_broad_jump_y.test)^2)
+
+f2v3cs2bj_broad_jump_out <- glmnet(f2v3cs2bj_broad_jump_x, f2v3cs2bj_broad_jump_y, alpha = 1, lambda = f2v3cs2bj_broad_jump_bestlam )
+coef(f2v3cs2bj_broad_jump_out)
+f2v3cs2bj_broad_jump_lasso.coef <- predict(f2v3cs2bj_broad_jump_out, type = "coefficients",
+    s = f2v3cs2bj_broad_jump_bestlam)[1:(ncol(forty_vertical_three_cone_shuttle_2_broad_jump)+1), ]
+f2v3cs2bj_broad_jump_lasso.coef
+f2v3cs2bj_broad_jump_lasso.coef[f2v3cs2bj_broad_jump_lasso.coef != 0]
+
+ggplot(forty_vertical_three_cone_shuttle_2_broad_jump[-f2v3cs2bj_broad_jump_train,] %>% mutate(pred = f2v3cs2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+f2v3cs2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(three_cone) + scale(shuttle), forty_vertical_three_cone_shuttle_2_broad_jump)
+f2v3cs2bj_broad_jump_y_scale <- (forty_vertical_three_cone_shuttle_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+f2v3cs2bj_broad_jump_train <- sample(1:nrow(f2v3cs2bj_broad_jump_x_scale), .8*nrow(f2v3cs2bj_broad_jump_x_scale))
+f2v3cs2bj_broad_jump_test <- (-f2v3cs2bj_broad_jump_train)
+f2v3cs2bj_broad_jump_y.test_scale <- f2v3cs2bj_broad_jump_y_scale[f2v3cs2bj_broad_jump_test]
+
+f2v3cs2bj_broad_jump_lasso.mod_scale <- glmnet(f2v3cs2bj_broad_jump_x_scale[f2v3cs2bj_broad_jump_train, ], f2v3cs2bj_broad_jump_y_scale[f2v3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+f2v3cs2bj_broad_jump_cv.out_scale <- cv.glmnet(f2v3cs2bj_broad_jump_x_scale[f2v3cs2bj_broad_jump_train, ], f2v3cs2bj_broad_jump_y_scale[f2v3cs2bj_broad_jump_train], alpha = 1)
+#plot(f2v3cs2bj_broad_jump_cv.out)
+f2v3cs2bj_broad_jump_bestlam_scale <- f2v3cs2bj_broad_jump_cv.out_scale$lambda.min
+#f2v3cs2bj_broad_jump_bestlam <- 1
+f2v3cs2bj_broad_jump_lasso.pred_scale <- predict(f2v3cs2bj_broad_jump_lasso.mod_scale, s = f2v3cs2bj_broad_jump_bestlam_scale,
+    newx = f2v3cs2bj_broad_jump_x_scale[f2v3cs2bj_broad_jump_test, ])
+mean((f2v3cs2bj_broad_jump_lasso.pred_scale - f2v3cs2bj_broad_jump_y.test_scale)^2)
+```
+
+# Use forty, vertical, three cone and shuttle to predict broad jump
+```{r}
+update10 <- update9 %>% mutate(broad_jump = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(three_cone) & !is.na(shuttle) & is.na(broad_jump),
+                           f2v3cs2bj_broad_jump_lasso.coef[f2v3cs2bj_broad_jump_lasso.coef != 0][1] +
+                             f2v3cs2bj_broad_jump_lasso.coef[f2v3cs2bj_broad_jump_lasso.coef != 0][2] * forty +
+                             f2v3cs2bj_broad_jump_lasso.coef[f2v3cs2bj_broad_jump_lasso.coef != 0][3] * vertical +
+                             f2v3cs2bj_broad_jump_lasso.coef[f2v3cs2bj_broad_jump_lasso.coef != 0][4] * three_cone,
+                           broad_jump
+                         )) 
+```
+
+# Use forty, broad jump, three_cone and shuttle to predict vertical
+```{r}
+forty_broad_jump_three_cone_shuttle_2_vertical <- combineonly %>% select(forty, broad_jump, three_cone, shuttle, vertical) %>% 
+  filter(!is.na(forty) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle) & !is.na(vertical))
+
+
+fbj3cs2v_vertical_x <- model.matrix(vertical ~ ., forty_broad_jump_three_cone_shuttle_2_vertical)
+fbj3cs2v_vertical_y <- forty_broad_jump_three_cone_shuttle_2_vertical$vertical
+fbj3cs2v_vertical_x 
+mean(fbj3cs2v_vertical_y)
+
+set.seed(2)
+fbj3cs2v_vertical_train <- sample(1:nrow(fbj3cs2v_vertical_x), .8*nrow(fbj3cs2v_vertical_x))
+fbj3cs2v_vertical_test <- (-fbj3cs2v_vertical_train)
+fbj3cs2v_vertical_y.test <- fbj3cs2v_vertical_y[fbj3cs2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+fbj3cs2v_vertical_lasso.mod <- glmnet(fbj3cs2v_vertical_x[fbj3cs2v_vertical_train, ], fbj3cs2v_vertical_y[fbj3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(fbj3cs2v_vertical_lasso.mod)
+
+set.seed(1)
+fbj3cs2v_vertical_cv.out <- cv.glmnet(fbj3cs2v_vertical_x[fbj3cs2v_vertical_train, ], fbj3cs2v_vertical_y[fbj3cs2v_vertical_train], alpha = 1)
+#plot(fbj3cs2v_vertical_cv.out)
+fbj3cs2v_vertical_bestlam <- fbj3cs2v_vertical_cv.out$lambda.min
+#fbj3cs2v_vertical_bestlam <- 1
+fbj3cs2v_vertical_lasso.pred <- predict(fbj3cs2v_vertical_lasso.mod, s = fbj3cs2v_vertical_bestlam,
+    newx = fbj3cs2v_vertical_x[fbj3cs2v_vertical_test, ])
+mean((fbj3cs2v_vertical_lasso.pred - fbj3cs2v_vertical_y.test)^2)
+
+fbj3cs2v_vertical_out <- glmnet(fbj3cs2v_vertical_x, fbj3cs2v_vertical_y, alpha = 1, lambda = fbj3cs2v_vertical_bestlam )
+coef(fbj3cs2v_vertical_out)
+fbj3cs2v_vertical_lasso.coef <- predict(fbj3cs2v_vertical_out, type = "coefficients",
+    s = fbj3cs2v_vertical_bestlam)[1:(ncol(forty_broad_jump_three_cone_shuttle_2_vertical)+1), ]
+fbj3cs2v_vertical_lasso.coef
+fbj3cs2v_vertical_lasso.coef[fbj3cs2v_vertical_lasso.coef != 0]
+
+ggplot(forty_broad_jump_three_cone_shuttle_2_vertical[-fbj3cs2v_vertical_train,] %>% mutate(pred = fbj3cs2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+fbj3cs2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(three_cone) + scale(shuttle), forty_broad_jump_three_cone_shuttle_2_vertical)
+fbj3cs2v_vertical_y_scale <- (forty_broad_jump_three_cone_shuttle_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+fbj3cs2v_vertical_train <- sample(1:nrow(fbj3cs2v_vertical_x_scale), .8*nrow(fbj3cs2v_vertical_x_scale))
+fbj3cs2v_vertical_test <- (-fbj3cs2v_vertical_train)
+fbj3cs2v_vertical_y.test_scale <- fbj3cs2v_vertical_y_scale[fbj3cs2v_vertical_test]
+
+fbj3cs2v_vertical_lasso.mod_scale <- glmnet(fbj3cs2v_vertical_x_scale[fbj3cs2v_vertical_train, ], fbj3cs2v_vertical_y_scale[fbj3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+fbj3cs2v_vertical_cv.out_scale <- cv.glmnet(fbj3cs2v_vertical_x_scale[fbj3cs2v_vertical_train, ], fbj3cs2v_vertical_y_scale[fbj3cs2v_vertical_train], alpha = 1)
+#plot(fbj3cs2v_vertical_cv.out)
+fbj3cs2v_vertical_bestlam_scale <- fbj3cs2v_vertical_cv.out_scale$lambda.min
+#fbj3cs2v_vertical_bestlam <- 1
+fbj3cs2v_vertical_lasso.pred_scale <- predict(fbj3cs2v_vertical_lasso.mod_scale, s = fbj3cs2v_vertical_bestlam_scale,
+    newx = fbj3cs2v_vertical_x_scale[fbj3cs2v_vertical_test, ])
+mean((fbj3cs2v_vertical_lasso.pred_scale - fbj3cs2v_vertical_y.test_scale)^2)
+```
+
+# Use forty, broad jump, three cone and shuttle to predict vertical
+```{r}
+update11 <- update10 %>% mutate(vertical = if_else(
+                           !is.na(forty) & is.na(vertical) & !is.na(three_cone) & !is.na(shuttle) & !is.na(broad_jump),
+                           fbj3cs2v_vertical_lasso.coef[fbj3cs2v_vertical_lasso.coef != 0][1] +
+                             fbj3cs2v_vertical_lasso.coef[fbj3cs2v_vertical_lasso.coef != 0][2] * forty +
+                             fbj3cs2v_vertical_lasso.coef[fbj3cs2v_vertical_lasso.coef != 0][3] * broad_jump +
+                             fbj3cs2v_vertical_lasso.coef[fbj3cs2v_vertical_lasso.coef != 0][4] * three_cone +
+                             fbj3cs2v_vertical_lasso.coef[fbj3cs2v_vertical_lasso.coef != 0][5] * shuttle,
+                           vertical
+                         )) 
+```
+
+# Use vertical, broad jump, three_cone and shuttle to predict forty
+```{r}
+vertical_broad_jump_three_cone_shuttle_2_forty <- combineonly %>% select(vertical, broad_jump, three_cone, shuttle, forty) %>% 
+  filter(!is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle) & !is.na(forty))
+
+
+vbj3cs2f_forty_x <- model.matrix(forty ~ ., vertical_broad_jump_three_cone_shuttle_2_forty)
+vbj3cs2f_forty_y <- vertical_broad_jump_three_cone_shuttle_2_forty$forty
+vbj3cs2f_forty_x 
+mean(vbj3cs2f_forty_y)
+
+set.seed(2)
+vbj3cs2f_forty_train <- sample(1:nrow(vbj3cs2f_forty_x), .8*nrow(vbj3cs2f_forty_x))
+vbj3cs2f_forty_test <- (-vbj3cs2f_forty_train)
+vbj3cs2f_forty_y.test <- vbj3cs2f_forty_y[vbj3cs2f_forty_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+vbj3cs2f_forty_lasso.mod <- glmnet(vbj3cs2f_forty_x[vbj3cs2f_forty_train, ], vbj3cs2f_forty_y[vbj3cs2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(vbj3cs2f_forty_lasso.mod)
+
+set.seed(1)
+vbj3cs2f_forty_cv.out <- cv.glmnet(vbj3cs2f_forty_x[vbj3cs2f_forty_train, ], vbj3cs2f_forty_y[vbj3cs2f_forty_train], alpha = 1)
+#plot(vbj3cs2f_forty_cv.out)
+vbj3cs2f_forty_bestlam <- vbj3cs2f_forty_cv.out$lambda.min
+#vbj3cs2f_forty_bestlam <- 1
+vbj3cs2f_forty_lasso.pred <- predict(vbj3cs2f_forty_lasso.mod, s = vbj3cs2f_forty_bestlam,
+    newx = vbj3cs2f_forty_x[vbj3cs2f_forty_test, ])
+mean((vbj3cs2f_forty_lasso.pred - vbj3cs2f_forty_y.test)^2)
+
+vbj3cs2f_forty_out <- glmnet(vbj3cs2f_forty_x, vbj3cs2f_forty_y, alpha = 1, lambda = vbj3cs2f_forty_bestlam )
+coef(vbj3cs2f_forty_out)
+vbj3cs2f_forty_lasso.coef <- predict(vbj3cs2f_forty_out, type = "coefficients",
+    s = vbj3cs2f_forty_bestlam)[1:(ncol(vertical_broad_jump_three_cone_shuttle_2_forty)+1), ]
+vbj3cs2f_forty_lasso.coef
+vbj3cs2f_forty_lasso.coef[vbj3cs2f_forty_lasso.coef != 0]
+
+ggplot(vertical_broad_jump_three_cone_shuttle_2_forty[-vbj3cs2f_forty_train,] %>% mutate(pred = vbj3cs2f_forty_lasso.pred),
+       aes(x = pred, forty)) +
+  geom_point()
+
+
+
+vbj3cs2f_forty_x_scale <- model.matrix(scale(forty) ~ scale(three_cone) + scale(shuttle), vertical_broad_jump_three_cone_shuttle_2_forty)
+vbj3cs2f_forty_y_scale <- (vertical_broad_jump_three_cone_shuttle_2_forty %>% mutate(forty = scale(forty)))$forty
+
+set.seed(2)
+vbj3cs2f_forty_train <- sample(1:nrow(vbj3cs2f_forty_x_scale), .8*nrow(vbj3cs2f_forty_x_scale))
+vbj3cs2f_forty_test <- (-vbj3cs2f_forty_train)
+vbj3cs2f_forty_y.test_scale <- vbj3cs2f_forty_y_scale[vbj3cs2f_forty_test]
+
+vbj3cs2f_forty_lasso.mod_scale <- glmnet(vbj3cs2f_forty_x_scale[vbj3cs2f_forty_train, ], vbj3cs2f_forty_y_scale[vbj3cs2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+vbj3cs2f_forty_cv.out_scale <- cv.glmnet(vbj3cs2f_forty_x_scale[vbj3cs2f_forty_train, ], vbj3cs2f_forty_y_scale[vbj3cs2f_forty_train], alpha = 1)
+#plot(vbj3cs2f_forty_cv.out)
+vbj3cs2f_forty_bestlam_scale <- vbj3cs2f_forty_cv.out_scale$lambda.min
+#vbj3cs2f_forty_bestlam <- 1
+vbj3cs2f_forty_lasso.pred_scale <- predict(vbj3cs2f_forty_lasso.mod_scale, s = vbj3cs2f_forty_bestlam_scale,
+    newx = vbj3cs2f_forty_x_scale[vbj3cs2f_forty_test, ])
+mean((vbj3cs2f_forty_lasso.pred_scale - vbj3cs2f_forty_y.test_scale)^2)
+```
+
+# Use vertical, broad jump, three cone and shuttle to predict forty
+```{r}
+combinepredicted <- update11 %>% mutate(forty = if_else(
+                           is.na(forty) & !is.na(vertical) & !is.na(three_cone) & !is.na(shuttle) & !is.na(broad_jump),
+                           vbj3cs2f_forty_lasso.coef[vbj3cs2f_forty_lasso.coef != 0][1] +
+                             vbj3cs2f_forty_lasso.coef[vbj3cs2f_forty_lasso.coef != 0][2] * vertical +
+                             vbj3cs2f_forty_lasso.coef[vbj3cs2f_forty_lasso.coef != 0][3] * broad_jump +
+                             vbj3cs2f_forty_lasso.coef[vbj3cs2f_forty_lasso.coef != 0][4] * three_cone +
+                             vbj3cs2f_forty_lasso.coef[vbj3cs2f_forty_lasso.coef != 0][5] * shuttle,
+                           forty
+                         )) 
+```
+
+
+
+__ALL STATS__
+
+# Use forty to predit
+```{r}
+e_forty_2_vertical <- combinecollege %>% select(forty, vertical, height, weight, c(9:21)) %>% na.omit()
+
+
+e_f2v_vertical_x <- model.matrix(vertical ~ ., e_forty_2_vertical)
+e_f2v_vertical_y <- e_forty_2_vertical$vertical
+mean(e_f2v_vertical_y)
+
+set.seed(2)
+e_f2v_vertical_train <- sample(1:nrow(e_f2v_vertical_x), .8*nrow(e_f2v_vertical_x))
+e_f2v_vertical_test <- (-e_f2v_vertical_train)
+e_f2v_vertical_y.test <- e_f2v_vertical_y[e_f2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_f2v_vertical_lasso.mod <- glmnet(e_f2v_vertical_x[e_f2v_vertical_train, ], e_f2v_vertical_y[e_f2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_f2v_vertical_lasso.mod)
+
+set.seed(1)
+e_f2v_vertical_cv.out <- cv.glmnet(e_f2v_vertical_x[e_f2v_vertical_train, ], e_f2v_vertical_y[e_f2v_vertical_train], alpha = 1)
+#plot(e_f2v_vertical_cv.out)
+e_f2v_vertical_bestlam <- e_f2v_vertical_cv.out$lambda.min
+#e_f2v_vertical_bestlam <- 1
+e_f2v_vertical_lasso.pred <- predict(e_f2v_vertical_lasso.mod, s = e_f2v_vertical_bestlam,
+    newx = e_f2v_vertical_x[e_f2v_vertical_test, ])
+mean((e_f2v_vertical_lasso.pred - e_f2v_vertical_y.test)^2)
+
+e_f2v_vertical_out <- glmnet(e_f2v_vertical_x, e_f2v_vertical_y, alpha = 1, lambda = e_f2v_vertical_bestlam )
+coef(e_f2v_vertical_out)
+e_f2v_vertical_lasso.coef <- predict(e_f2v_vertical_out, type = "coefficients",
+    s = e_f2v_vertical_bestlam)[1:(ncol(e_forty_2_vertical)+1), ]
+e_f2v_vertical_lasso.coef
+e_f2v_vertical_lasso.coef[e_f2v_vertical_lasso.coef != 0]
+
+ggplot(e_forty_2_vertical[-e_f2v_vertical_train,] %>% mutate(pred = e_f2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+e_f2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(forty), e_forty_2_vertical)
+e_f2v_vertical_y_scale <- (e_forty_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+e_f2v_vertical_train <- sample(1:nrow(e_f2v_vertical_x_scale), .8*nrow(e_f2v_vertical_x_scale))
+e_f2v_vertical_test <- (-e_f2v_vertical_train)
+e_f2v_vertical_y.test_scale <- e_f2v_vertical_y_scale[e_f2v_vertical_test]
+
+e_f2v_vertical_lasso.mod_scale <- glmnet(e_f2v_vertical_x_scale[e_f2v_vertical_train, ], e_f2v_vertical_y_scale[e_f2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_f2v_vertical_cv.out_scale <- cv.glmnet(e_f2v_vertical_x_scale[e_f2v_vertical_train, ], e_f2v_vertical_y_scale[e_f2v_vertical_train], alpha = 1)
+#plot(e_f2v_vertical_cv.out)
+e_f2v_vertical_bestlam_scale <- e_f2v_vertical_cv.out_scale$lambda.min
+#e_f2v_vertical_bestlam <- 1
+e_f2v_vertical_lasso.pred_scale <- predict(e_f2v_vertical_lasso.mod_scale, s = e_f2v_vertical_bestlam_scale,
+    newx = e_f2v_vertical_x_scale[e_f2v_vertical_test, ])
+mean((e_f2v_vertical_lasso.pred_scale - e_f2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+e_forty_2_broad_jump <- combinecollege %>% select(forty, broad_jump, height, weight, c(9:21)) %>% na.omit()
+
+
+e_e_f2bj_broad_jump_x <- model.matrix(broad_jump ~ ., e_forty_2_broad_jump)
+e_e_f2bj_broad_jump_y <- e_forty_2_broad_jump$broad_jump
+mean(e_e_f2bj_broad_jump_y)
+
+set.seed(2)
+e_e_f2bj_broad_jump_train <- sample(1:nrow(e_e_f2bj_broad_jump_x), .8*nrow(e_e_f2bj_broad_jump_x))
+e_e_f2bj_broad_jump_test <- (-e_e_f2bj_broad_jump_train)
+e_e_f2bj_broad_jump_y.test <- e_e_f2bj_broad_jump_y[e_e_f2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_e_f2bj_broad_jump_lasso.mod <- glmnet(e_e_f2bj_broad_jump_x[e_e_f2bj_broad_jump_train, ], e_e_f2bj_broad_jump_y[e_e_f2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_e_f2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+e_e_f2bj_broad_jump_cv.out <- cv.glmnet(e_e_f2bj_broad_jump_x[e_e_f2bj_broad_jump_train, ], e_e_f2bj_broad_jump_y[e_e_f2bj_broad_jump_train], alpha = 1)
+#plot(e_e_f2bj_broad_jump_cv.out)
+e_e_f2bj_broad_jump_bestlam <- e_e_f2bj_broad_jump_cv.out$lambda.min
+#e_e_f2bj_broad_jump_bestlam <- 1
+e_e_f2bj_broad_jump_lasso.pred <- predict(e_e_f2bj_broad_jump_lasso.mod, s = e_e_f2bj_broad_jump_bestlam,
+    newx = e_e_f2bj_broad_jump_x[e_e_f2bj_broad_jump_test, ])
+mean((e_e_f2bj_broad_jump_lasso.pred - e_e_f2bj_broad_jump_y.test)^2)
+
+e_e_f2bj_broad_jump_out <- glmnet(e_e_f2bj_broad_jump_x, e_e_f2bj_broad_jump_y, alpha = 1, lambda = e_e_f2bj_broad_jump_bestlam )
+coef(e_e_f2bj_broad_jump_out)
+e_e_f2bj_broad_jump_lasso.coef <- predict(e_e_f2bj_broad_jump_out, type = "coefficients",
+    s = e_e_f2bj_broad_jump_bestlam)[1:(ncol(e_forty_2_broad_jump)+1), ]
+e_e_f2bj_broad_jump_lasso.coef
+e_e_f2bj_broad_jump_lasso.coef[e_e_f2bj_broad_jump_lasso.coef != 0]
+
+ggplot(e_forty_2_broad_jump[-e_e_f2bj_broad_jump_train,] %>% mutate(pred = e_e_f2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+e_e_f2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(forty), e_forty_2_broad_jump)
+e_e_f2bj_broad_jump_y_scale <- (e_forty_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+e_e_f2bj_broad_jump_train <- sample(1:nrow(e_e_f2bj_broad_jump_x_scale), .8*nrow(e_e_f2bj_broad_jump_x_scale))
+e_e_f2bj_broad_jump_test <- (-e_e_f2bj_broad_jump_train)
+e_e_f2bj_broad_jump_y.test_scale <- e_e_f2bj_broad_jump_y_scale[e_e_f2bj_broad_jump_test]
+
+e_e_f2bj_broad_jump_lasso.mod_scale <- glmnet(e_e_f2bj_broad_jump_x_scale[e_e_f2bj_broad_jump_train, ], e_e_f2bj_broad_jump_y_scale[e_e_f2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_e_f2bj_broad_jump_cv.out_scale <- cv.glmnet(e_e_f2bj_broad_jump_x_scale[e_e_f2bj_broad_jump_train, ], e_e_f2bj_broad_jump_y_scale[e_e_f2bj_broad_jump_train], alpha = 1)
+#plot(e_e_f2bj_broad_jump_cv.out)
+e_e_f2bj_broad_jump_bestlam_scale <- e_e_f2bj_broad_jump_cv.out_scale$lambda.min
+#e_e_f2bj_broad_jump_bestlam <- 1
+e_e_f2bj_broad_jump_lasso.pred_scale <- predict(e_e_f2bj_broad_jump_lasso.mod_scale, s = e_e_f2bj_broad_jump_bestlam_scale,
+    newx = e_e_f2bj_broad_jump_x_scale[e_e_f2bj_broad_jump_test, ])
+mean((e_e_f2bj_broad_jump_lasso.pred_scale - e_e_f2bj_broad_jump_y.test_scale)^2)
+```
+
+```{r}
+e_forty_2_three_cone <- combinecollege %>% select(forty, three_cone, height, weight, c(9:21)) %>% na.omit()
+
+
+e_f23c_three_cone_x <- model.matrix(three_cone ~ ., e_forty_2_three_cone)
+e_f23c_three_cone_y <- e_forty_2_three_cone$three_cone
+mean(e_f23c_three_cone_y)
+
+set.seed(2)
+e_f23c_three_cone_train <- sample(1:nrow(e_f23c_three_cone_x), .8*nrow(e_f23c_three_cone_x))
+e_f23c_three_cone_test <- (-e_f23c_three_cone_train)
+e_f23c_three_cone_y.test <- e_f23c_three_cone_y[e_f23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_f23c_three_cone_lasso.mod <- glmnet(e_f23c_three_cone_x[e_f23c_three_cone_train, ], e_f23c_three_cone_y[e_f23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_f23c_three_cone_lasso.mod)
+
+set.seed(1)
+e_f23c_three_cone_cv.out <- cv.glmnet(e_f23c_three_cone_x[e_f23c_three_cone_train, ], e_f23c_three_cone_y[e_f23c_three_cone_train], alpha = 1)
+#plot(e_f23c_three_cone_cv.out)
+e_f23c_three_cone_bestlam <- e_f23c_three_cone_cv.out$lambda.min
+#e_f23c_three_cone_bestlam <- 1
+e_f23c_three_cone_lasso.pred <- predict(e_f23c_three_cone_lasso.mod, s = e_f23c_three_cone_bestlam,
+    newx = e_f23c_three_cone_x[e_f23c_three_cone_test, ])
+mean((e_f23c_three_cone_lasso.pred - e_f23c_three_cone_y.test)^2)
+
+e_f23c_three_cone_out <- glmnet(e_f23c_three_cone_x, e_f23c_three_cone_y, alpha = 1, lambda = e_f23c_three_cone_bestlam )
+coef(e_f23c_three_cone_out)
+e_f23c_three_cone_lasso.coef <- predict(e_f23c_three_cone_out, type = "coefficients",
+    s = e_f23c_three_cone_bestlam)[1:(ncol(e_forty_2_three_cone)+1), ]
+e_f23c_three_cone_lasso.coef
+e_f23c_three_cone_lasso.coef[e_f23c_three_cone_lasso.coef != 0]
+
+ggplot(e_forty_2_three_cone[-e_f23c_three_cone_train,] %>% mutate(pred = e_f23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+e_f23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(forty), e_forty_2_three_cone)
+e_f23c_three_cone_y_scale <- (e_forty_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+e_f23c_three_cone_train <- sample(1:nrow(e_f23c_three_cone_x_scale), .8*nrow(e_f23c_three_cone_x_scale))
+e_f23c_three_cone_test <- (-e_f23c_three_cone_train)
+e_f23c_three_cone_y.test_scale <- e_f23c_three_cone_y_scale[e_f23c_three_cone_test]
+
+e_f23c_three_cone_lasso.mod_scale <- glmnet(e_f23c_three_cone_x_scale[e_f23c_three_cone_train, ], e_f23c_three_cone_y_scale[e_f23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_f23c_three_cone_cv.out_scale <- cv.glmnet(e_f23c_three_cone_x_scale[e_f23c_three_cone_train, ], e_f23c_three_cone_y_scale[e_f23c_three_cone_train], alpha = 1)
+#plot(e_f23c_three_cone_cv.out)
+e_f23c_three_cone_bestlam_scale <- e_f23c_three_cone_cv.out_scale$lambda.min
+#e_f23c_three_cone_bestlam <- 1
+e_f23c_three_cone_lasso.pred_scale <- predict(e_f23c_three_cone_lasso.mod_scale, s = e_f23c_three_cone_bestlam_scale,
+    newx = e_f23c_three_cone_x_scale[e_f23c_three_cone_test, ])
+mean((e_f23c_three_cone_lasso.pred_scale - e_f23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+e_forty_2_shuttle <- combinecollege %>% select(forty, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_f2s_shuttle_x <- model.matrix(shuttle ~ ., e_forty_2_shuttle)
+e_f2s_shuttle_y <- e_forty_2_shuttle$shuttle
+mean(e_f2s_shuttle_y)
+
+set.seed(2)
+e_f2s_shuttle_train <- sample(1:nrow(e_f2s_shuttle_x), .8*nrow(e_f2s_shuttle_x))
+e_f2s_shuttle_test <- (-e_f2s_shuttle_train)
+e_f2s_shuttle_y.test <- e_f2s_shuttle_y[e_f2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_f2s_shuttle_lasso.mod <- glmnet(e_f2s_shuttle_x[e_f2s_shuttle_train, ], e_f2s_shuttle_y[e_f2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_f2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_f2s_shuttle_cv.out <- cv.glmnet(e_f2s_shuttle_x[e_f2s_shuttle_train, ], e_f2s_shuttle_y[e_f2s_shuttle_train], alpha = 1)
+#plot(e_f2s_shuttle_cv.out)
+e_f2s_shuttle_bestlam <- e_f2s_shuttle_cv.out$lambda.min
+#e_f2s_shuttle_bestlam <- 1
+e_f2s_shuttle_lasso.pred <- predict(e_f2s_shuttle_lasso.mod, s = e_f2s_shuttle_bestlam,
+    newx = e_f2s_shuttle_x[e_f2s_shuttle_test, ])
+mean((e_f2s_shuttle_lasso.pred - e_f2s_shuttle_y.test)^2)
+
+e_f2s_shuttle_out <- glmnet(e_f2s_shuttle_x, e_f2s_shuttle_y, alpha = 1, lambda = e_f2s_shuttle_bestlam )
+coef(e_f2s_shuttle_out)
+e_f2s_shuttle_lasso.coef <- predict(e_f2s_shuttle_out, type = "coefficients",
+    s = e_f2s_shuttle_bestlam)[1:(ncol(e_forty_2_shuttle)+1), ]
+e_f2s_shuttle_lasso.coef
+e_f2s_shuttle_lasso.coef[e_f2s_shuttle_lasso.coef != 0]
+
+ggplot(e_forty_2_shuttle[-e_f2s_shuttle_train,] %>% mutate(pred = e_f2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_f2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(forty), e_forty_2_shuttle)
+e_f2s_shuttle_y_scale <- (e_forty_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_f2s_shuttle_train <- sample(1:nrow(e_f2s_shuttle_x_scale), .8*nrow(e_f2s_shuttle_x_scale))
+e_f2s_shuttle_test <- (-e_f2s_shuttle_train)
+e_f2s_shuttle_y.test_scale <- e_f2s_shuttle_y_scale[e_f2s_shuttle_test]
+
+e_f2s_shuttle_lasso.mod_scale <- glmnet(e_f2s_shuttle_x_scale[e_f2s_shuttle_train, ], e_f2s_shuttle_y_scale[e_f2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_f2s_shuttle_cv.out_scale <- cv.glmnet(e_f2s_shuttle_x_scale[e_f2s_shuttle_train, ], e_f2s_shuttle_y_scale[e_f2s_shuttle_train], alpha = 1)
+#plot(e_f2s_shuttle_cv.out)
+e_f2s_shuttle_bestlam_scale <- e_f2s_shuttle_cv.out_scale$lambda.min
+#e_f2s_shuttle_bestlam <- 1
+e_f2s_shuttle_lasso.pred_scale <- predict(e_f2s_shuttle_lasso.mod_scale, s = e_f2s_shuttle_bestlam_scale,
+    newx = e_f2s_shuttle_x_scale[e_f2s_shuttle_test, ])
+mean((e_f2s_shuttle_lasso.pred_scale - e_f2s_shuttle_y.test_scale)^2)
+```
+
+# If Only forty predict vertical
+```{r}
+e_update1 <- combinecollege %>% mutate(vertical = if_else(
+                           !is.na(forty) & is.na(vertical) & is.na(three_cone) & is.na(shuttle) & is.na(broad_jump),
+                           e_f2v_vertical_lasso.coef[e_f2v_vertical_lasso.coef != 0][1] +
+                             e_f2v_vertical_lasso.coef[e_f2v_vertical_lasso.coef != 0][2] * forty ,
+                           vertical
+                         )) 
+```
+
+```{r}
+e_forty_broad_jump_2_vertical <- combinecollege %>% select(forty, broad_jump, vertical, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fbj2v_vertical_x <- model.matrix(vertical ~ ., e_forty_broad_jump_2_vertical)
+e_fbj2v_vertical_y <- e_forty_broad_jump_2_vertical$vertical
+mean(e_fbj2v_vertical_y)
+
+set.seed(2)
+e_fbj2v_vertical_train <- sample(1:nrow(e_fbj2v_vertical_x), .8*nrow(e_fbj2v_vertical_x))
+e_fbj2v_vertical_test <- (-e_fbj2v_vertical_train)
+e_fbj2v_vertical_y.test <- e_fbj2v_vertical_y[e_fbj2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fbj2v_vertical_lasso.mod <- glmnet(e_fbj2v_vertical_x[e_fbj2v_vertical_train, ], e_fbj2v_vertical_y[e_fbj2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fbj2v_vertical_lasso.mod)
+
+set.seed(1)
+e_fbj2v_vertical_cv.out <- cv.glmnet(e_fbj2v_vertical_x[e_fbj2v_vertical_train, ], e_fbj2v_vertical_y[e_fbj2v_vertical_train], alpha = 1)
+#plot(e_fbj2v_vertical_cv.out)
+e_fbj2v_vertical_bestlam <- e_fbj2v_vertical_cv.out$lambda.min
+#e_fbj2v_vertical_bestlam <- 1
+e_fbj2v_vertical_lasso.pred <- predict(e_fbj2v_vertical_lasso.mod, s = e_fbj2v_vertical_bestlam,
+    newx = e_fbj2v_vertical_x[e_fbj2v_vertical_test, ])
+mean((e_fbj2v_vertical_lasso.pred - e_fbj2v_vertical_y.test)^2)
+
+e_fbj2v_vertical_out <- glmnet(e_fbj2v_vertical_x, e_fbj2v_vertical_y, alpha = 1, lambda = e_fbj2v_vertical_bestlam )
+coef(e_fbj2v_vertical_out)
+e_fbj2v_vertical_lasso.coef <- predict(e_fbj2v_vertical_out, type = "coefficients",
+    s = e_fbj2v_vertical_bestlam)[1:(ncol(e_forty_broad_jump_2_vertical)+1), ]
+e_fbj2v_vertical_lasso.coef
+e_fbj2v_vertical_lasso.coef[e_fbj2v_vertical_lasso.coef != 0]
+
+ggplot(e_forty_broad_jump_2_vertical[-e_fbj2v_vertical_train,] %>% mutate(pred = e_fbj2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+e_fbj2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(forty), e_forty_broad_jump_2_vertical)
+e_fbj2v_vertical_y_scale <- (e_forty_broad_jump_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+e_fbj2v_vertical_train <- sample(1:nrow(e_fbj2v_vertical_x_scale), .8*nrow(e_fbj2v_vertical_x_scale))
+e_fbj2v_vertical_test <- (-e_fbj2v_vertical_train)
+e_fbj2v_vertical_y.test_scale <- e_fbj2v_vertical_y_scale[e_fbj2v_vertical_test]
+
+e_fbj2v_vertical_lasso.mod_scale <- glmnet(e_fbj2v_vertical_x_scale[e_fbj2v_vertical_train, ], e_fbj2v_vertical_y_scale[e_fbj2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fbj2v_vertical_cv.out_scale <- cv.glmnet(e_fbj2v_vertical_x_scale[e_fbj2v_vertical_train, ], e_fbj2v_vertical_y_scale[e_fbj2v_vertical_train], alpha = 1)
+#plot(e_fbj2v_vertical_cv.out)
+e_fbj2v_vertical_bestlam_scale <- e_fbj2v_vertical_cv.out_scale$lambda.min
+#e_fbj2v_vertical_bestlam <- 1
+e_fbj2v_vertical_lasso.pred_scale <- predict(e_fbj2v_vertical_lasso.mod_scale, s = e_fbj2v_vertical_bestlam_scale,
+    newx = e_fbj2v_vertical_x_scale[e_fbj2v_vertical_test, ])
+mean((e_fbj2v_vertical_lasso.pred_scale - e_fbj2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+e_forty_broad_jump_2_three_cone <- combinecollege %>% select(forty, broad_jump, three_cone, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fbj23c_three_cone_x <- model.matrix(three_cone ~ ., e_forty_broad_jump_2_three_cone)
+e_fbj23c_three_cone_y <- e_forty_broad_jump_2_three_cone$three_cone
+mean(e_fbj23c_three_cone_y)
+
+set.seed(2)
+e_fbj23c_three_cone_train <- sample(1:nrow(e_fbj23c_three_cone_x), .8*nrow(e_fbj23c_three_cone_x))
+e_fbj23c_three_cone_test <- (-e_fbj23c_three_cone_train)
+e_fbj23c_three_cone_y.test <- e_fbj23c_three_cone_y[e_fbj23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fbj23c_three_cone_lasso.mod <- glmnet(e_fbj23c_three_cone_x[e_fbj23c_three_cone_train, ], e_fbj23c_three_cone_y[e_fbj23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fbj23c_three_cone_lasso.mod)
+
+set.seed(1)
+e_fbj23c_three_cone_cv.out <- cv.glmnet(e_fbj23c_three_cone_x[e_fbj23c_three_cone_train, ], e_fbj23c_three_cone_y[e_fbj23c_three_cone_train], alpha = 1)
+#plot(e_fbj23c_three_cone_cv.out)
+e_fbj23c_three_cone_bestlam <- e_fbj23c_three_cone_cv.out$lambda.min
+#e_fbj23c_three_cone_bestlam <- 1
+e_fbj23c_three_cone_lasso.pred <- predict(e_fbj23c_three_cone_lasso.mod, s = e_fbj23c_three_cone_bestlam,
+    newx = e_fbj23c_three_cone_x[e_fbj23c_three_cone_test, ])
+mean((e_fbj23c_three_cone_lasso.pred - e_fbj23c_three_cone_y.test)^2)
+
+e_fbj23c_three_cone_out <- glmnet(e_fbj23c_three_cone_x, e_fbj23c_three_cone_y, alpha = 1, lambda = e_fbj23c_three_cone_bestlam )
+coef(e_fbj23c_three_cone_out)
+e_fbj23c_three_cone_lasso.coef <- predict(e_fbj23c_three_cone_out, type = "coefficients",
+    s = e_fbj23c_three_cone_bestlam)[1:(ncol(e_forty_broad_jump_2_three_cone)+1), ]
+e_fbj23c_three_cone_lasso.coef
+e_fbj23c_three_cone_lasso.coef[e_fbj23c_three_cone_lasso.coef != 0]
+
+ggplot(e_forty_broad_jump_2_three_cone[-e_fbj23c_three_cone_train,] %>% mutate(pred = e_fbj23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+e_fbj23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(forty), e_forty_broad_jump_2_three_cone)
+e_fbj23c_three_cone_y_scale <- (e_forty_broad_jump_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+e_fbj23c_three_cone_train <- sample(1:nrow(e_fbj23c_three_cone_x_scale), .8*nrow(e_fbj23c_three_cone_x_scale))
+e_fbj23c_three_cone_test <- (-e_fbj23c_three_cone_train)
+e_fbj23c_three_cone_y.test_scale <- e_fbj23c_three_cone_y_scale[e_fbj23c_three_cone_test]
+
+e_fbj23c_three_cone_lasso.mod_scale <- glmnet(e_fbj23c_three_cone_x_scale[e_fbj23c_three_cone_train, ], e_fbj23c_three_cone_y_scale[e_fbj23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fbj23c_three_cone_cv.out_scale <- cv.glmnet(e_fbj23c_three_cone_x_scale[e_fbj23c_three_cone_train, ], e_fbj23c_three_cone_y_scale[e_fbj23c_three_cone_train], alpha = 1)
+#plot(e_fbj23c_three_cone_cv.out)
+e_fbj23c_three_cone_bestlam_scale <- e_fbj23c_three_cone_cv.out_scale$lambda.min
+#e_fbj23c_three_cone_bestlam <- 1
+e_fbj23c_three_cone_lasso.pred_scale <- predict(e_fbj23c_three_cone_lasso.mod_scale, s = e_fbj23c_three_cone_bestlam_scale,
+    newx = e_fbj23c_three_cone_x_scale[e_fbj23c_three_cone_test, ])
+mean((e_fbj23c_three_cone_lasso.pred_scale - e_fbj23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+e_forty_broad_jump_2_shuttle <- combinecollege %>% select(forty, broad_jump, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fbj2s_shuttle_x <- model.matrix(shuttle ~ ., e_forty_broad_jump_2_shuttle)
+e_fbj2s_shuttle_y <- e_forty_broad_jump_2_shuttle$shuttle
+mean(e_fbj2s_shuttle_y)
+
+set.seed(2)
+e_fbj2s_shuttle_train <- sample(1:nrow(e_fbj2s_shuttle_x), .8*nrow(e_fbj2s_shuttle_x))
+e_fbj2s_shuttle_test <- (-e_fbj2s_shuttle_train)
+e_fbj2s_shuttle_y.test <- e_fbj2s_shuttle_y[e_fbj2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fbj2s_shuttle_lasso.mod <- glmnet(e_fbj2s_shuttle_x[e_fbj2s_shuttle_train, ], e_fbj2s_shuttle_y[e_fbj2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fbj2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_fbj2s_shuttle_cv.out <- cv.glmnet(e_fbj2s_shuttle_x[e_fbj2s_shuttle_train, ], e_fbj2s_shuttle_y[e_fbj2s_shuttle_train], alpha = 1)
+#plot(e_fbj2s_shuttle_cv.out)
+e_fbj2s_shuttle_bestlam <- e_fbj2s_shuttle_cv.out$lambda.min
+#e_fbj2s_shuttle_bestlam <- 1
+e_fbj2s_shuttle_lasso.pred <- predict(e_fbj2s_shuttle_lasso.mod, s = e_fbj2s_shuttle_bestlam,
+    newx = e_fbj2s_shuttle_x[e_fbj2s_shuttle_test, ])
+mean((e_fbj2s_shuttle_lasso.pred - e_fbj2s_shuttle_y.test)^2)
+
+e_fbj2s_shuttle_out <- glmnet(e_fbj2s_shuttle_x, e_fbj2s_shuttle_y, alpha = 1, lambda = e_fbj2s_shuttle_bestlam )
+coef(e_fbj2s_shuttle_out)
+e_fbj2s_shuttle_lasso.coef <- predict(e_fbj2s_shuttle_out, type = "coefficients",
+    s = e_fbj2s_shuttle_bestlam)[1:(ncol(e_forty_broad_jump_2_shuttle)+1), ]
+e_fbj2s_shuttle_lasso.coef
+e_fbj2s_shuttle_lasso.coef[e_fbj2s_shuttle_lasso.coef != 0]
+
+ggplot(e_forty_broad_jump_2_shuttle[-e_fbj2s_shuttle_train,] %>% mutate(pred = e_fbj2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_fbj2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(forty), e_forty_broad_jump_2_shuttle)
+e_fbj2s_shuttle_y_scale <- (e_forty_broad_jump_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_fbj2s_shuttle_train <- sample(1:nrow(e_fbj2s_shuttle_x_scale), .8*nrow(e_fbj2s_shuttle_x_scale))
+e_fbj2s_shuttle_test <- (-e_fbj2s_shuttle_train)
+e_fbj2s_shuttle_y.test_scale <- e_fbj2s_shuttle_y_scale[e_fbj2s_shuttle_test]
+
+e_fbj2s_shuttle_lasso.mod_scale <- glmnet(e_fbj2s_shuttle_x_scale[e_fbj2s_shuttle_train, ], e_fbj2s_shuttle_y_scale[e_fbj2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fbj2s_shuttle_cv.out_scale <- cv.glmnet(e_fbj2s_shuttle_x_scale[e_fbj2s_shuttle_train, ], e_fbj2s_shuttle_y_scale[e_fbj2s_shuttle_train], alpha = 1)
+#plot(e_fbj2s_shuttle_cv.out)
+e_fbj2s_shuttle_bestlam_scale <- e_fbj2s_shuttle_cv.out_scale$lambda.min
+#e_fbj2s_shuttle_bestlam <- 1
+e_fbj2s_shuttle_lasso.pred_scale <- predict(e_fbj2s_shuttle_lasso.mod_scale, s = e_fbj2s_shuttle_bestlam_scale,
+    newx = e_fbj2s_shuttle_x_scale[e_fbj2s_shuttle_test, ])
+mean((e_fbj2s_shuttle_lasso.pred_scale - e_fbj2s_shuttle_y.test_scale)^2)
+```
+
+# If only has forty and broad_jump predict vertical
+```{r}
+e_update2 <- e_update1 %>% mutate(vertical = if_else(
+                           !is.na(forty) & is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           e_fbj2v_vertical_lasso.coef[e_fbj2v_vertical_lasso.coef != 0][1] +
+                             e_fbj2v_vertical_lasso.coef[e_fbj2v_vertical_lasso.coef != 0][2] * forty +
+                             e_fbj2v_vertical_lasso.coef[e_fbj2v_vertical_lasso.coef != 0][3] * broad_jump,
+                           vertical
+                         )) 
+```
+
+# Use forty and vertical to predict
+```{r}
+e_forty_vertical_2_broad_jump <- combinecollege %>% select(forty, vertical, broad_jump, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fv2bj_broad_jump_x <- model.matrix(broad_jump ~ ., e_forty_vertical_2_broad_jump)
+e_fv2bj_broad_jump_y <- e_forty_vertical_2_broad_jump$broad_jump
+mean(e_fv2bj_broad_jump_y)
+
+set.seed(2)
+e_fv2bj_broad_jump_train <- sample(1:nrow(e_fv2bj_broad_jump_x), .8*nrow(e_fv2bj_broad_jump_x))
+e_fv2bj_broad_jump_test <- (-e_fv2bj_broad_jump_train)
+e_fv2bj_broad_jump_y.test <- e_fv2bj_broad_jump_y[e_fv2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fv2bj_broad_jump_lasso.mod <- glmnet(e_fv2bj_broad_jump_x[e_fv2bj_broad_jump_train, ], e_fv2bj_broad_jump_y[e_fv2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fv2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+e_fv2bj_broad_jump_cv.out <- cv.glmnet(e_fv2bj_broad_jump_x[e_fv2bj_broad_jump_train, ], e_fv2bj_broad_jump_y[e_fv2bj_broad_jump_train], alpha = 1)
+#plot(e_fv2bj_broad_jump_cv.out)
+e_fv2bj_broad_jump_bestlam <- e_fv2bj_broad_jump_cv.out$lambda.min
+#e_fv2bj_broad_jump_bestlam <- 1
+e_fv2bj_broad_jump_lasso.pred <- predict(e_fv2bj_broad_jump_lasso.mod, s = e_fv2bj_broad_jump_bestlam,
+    newx = e_fv2bj_broad_jump_x[e_fv2bj_broad_jump_test, ])
+mean((e_fv2bj_broad_jump_lasso.pred - e_fv2bj_broad_jump_y.test)^2)
+
+e_fv2bj_broad_jump_out <- glmnet(e_fv2bj_broad_jump_x, e_fv2bj_broad_jump_y, alpha = 1, lambda = e_fv2bj_broad_jump_bestlam )
+coef(e_fv2bj_broad_jump_out)
+e_fv2bj_broad_jump_lasso.coef <- predict(e_fv2bj_broad_jump_out, type = "coefficients",
+    s = e_fv2bj_broad_jump_bestlam)[1:(ncol(e_forty_vertical_2_broad_jump)+1), ]
+e_fv2bj_broad_jump_lasso.coef
+e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0]
+
+ggplot(e_forty_vertical_2_broad_jump[-e_fv2bj_broad_jump_train,] %>% mutate(pred = e_fv2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+e_fv2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(forty), e_forty_vertical_2_broad_jump)
+e_fv2bj_broad_jump_y_scale <- (e_forty_vertical_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+e_fv2bj_broad_jump_train <- sample(1:nrow(e_fv2bj_broad_jump_x_scale), .8*nrow(e_fv2bj_broad_jump_x_scale))
+e_fv2bj_broad_jump_test <- (-e_fv2bj_broad_jump_train)
+e_fv2bj_broad_jump_y.test_scale <- e_fv2bj_broad_jump_y_scale[e_fv2bj_broad_jump_test]
+
+e_fv2bj_broad_jump_lasso.mod_scale <- glmnet(e_fv2bj_broad_jump_x_scale[e_fv2bj_broad_jump_train, ], e_fv2bj_broad_jump_y_scale[e_fv2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fv2bj_broad_jump_cv.out_scale <- cv.glmnet(e_fv2bj_broad_jump_x_scale[e_fv2bj_broad_jump_train, ], e_fv2bj_broad_jump_y_scale[e_fv2bj_broad_jump_train], alpha = 1)
+#plot(e_fv2bj_broad_jump_cv.out)
+e_fv2bj_broad_jump_bestlam_scale <- e_fv2bj_broad_jump_cv.out_scale$lambda.min
+#e_fv2bj_broad_jump_bestlam <- 1
+e_fv2bj_broad_jump_lasso.pred_scale <- predict(e_fv2bj_broad_jump_lasso.mod_scale, s = e_fv2bj_broad_jump_bestlam_scale,
+    newx = e_fv2bj_broad_jump_x_scale[e_fv2bj_broad_jump_test, ])
+mean((e_fv2bj_broad_jump_lasso.pred_scale - e_fv2bj_broad_jump_y.test_scale)^2)
+```
+
+```{r}
+e_forty_vertical_2_three_cone <- combinecollege %>% select(forty, vertical, three_cone, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fv23c_three_cone_x <- model.matrix(three_cone ~ ., e_forty_vertical_2_three_cone)
+e_fv23c_three_cone_y <- e_forty_vertical_2_three_cone$three_cone
+mean(e_fv23c_three_cone_y)
+
+set.seed(2)
+e_fv23c_three_cone_train <- sample(1:nrow(e_fv23c_three_cone_x), .8*nrow(e_fv23c_three_cone_x))
+e_fv23c_three_cone_test <- (-e_fv23c_three_cone_train)
+e_fv23c_three_cone_y.test <- e_fv23c_three_cone_y[e_fv23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fv23c_three_cone_lasso.mod <- glmnet(e_fv23c_three_cone_x[e_fv23c_three_cone_train, ], e_fv23c_three_cone_y[e_fv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fv23c_three_cone_lasso.mod)
+
+set.seed(1)
+e_fv23c_three_cone_cv.out <- cv.glmnet(e_fv23c_three_cone_x[e_fv23c_three_cone_train, ], e_fv23c_three_cone_y[e_fv23c_three_cone_train], alpha = 1)
+#plot(e_fv23c_three_cone_cv.out)
+e_fv23c_three_cone_bestlam <- e_fv23c_three_cone_cv.out$lambda.min
+#e_fv23c_three_cone_bestlam <- 1
+e_fv23c_three_cone_lasso.pred <- predict(e_fv23c_three_cone_lasso.mod, s = e_fv23c_three_cone_bestlam,
+    newx = e_fv23c_three_cone_x[e_fv23c_three_cone_test, ])
+mean((e_fv23c_three_cone_lasso.pred - e_fv23c_three_cone_y.test)^2)
+
+e_fv23c_three_cone_out <- glmnet(e_fv23c_three_cone_x, e_fv23c_three_cone_y, alpha = 1, lambda = e_fv23c_three_cone_bestlam )
+coef(e_fv23c_three_cone_out)
+e_fv23c_three_cone_lasso.coef <- predict(e_fv23c_three_cone_out, type = "coefficients",
+    s = e_fv23c_three_cone_bestlam)[1:(ncol(e_forty_vertical_2_three_cone)+1), ]
+e_fv23c_three_cone_lasso.coef
+e_fv23c_three_cone_lasso.coef[e_fv23c_three_cone_lasso.coef != 0]
+
+ggplot(e_forty_vertical_2_three_cone[-e_fv23c_three_cone_train,] %>% mutate(pred = e_fv23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+e_fv23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(forty), e_forty_vertical_2_three_cone)
+e_fv23c_three_cone_y_scale <- (e_forty_vertical_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+e_fv23c_three_cone_train <- sample(1:nrow(e_fv23c_three_cone_x_scale), .8*nrow(e_fv23c_three_cone_x_scale))
+e_fv23c_three_cone_test <- (-e_fv23c_three_cone_train)
+e_fv23c_three_cone_y.test_scale <- e_fv23c_three_cone_y_scale[e_fv23c_three_cone_test]
+
+e_fv23c_three_cone_lasso.mod_scale <- glmnet(e_fv23c_three_cone_x_scale[e_fv23c_three_cone_train, ], e_fv23c_three_cone_y_scale[e_fv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fv23c_three_cone_cv.out_scale <- cv.glmnet(e_fv23c_three_cone_x_scale[e_fv23c_three_cone_train, ], e_fv23c_three_cone_y_scale[e_fv23c_three_cone_train], alpha = 1)
+#plot(e_fv23c_three_cone_cv.out)
+e_fv23c_three_cone_bestlam_scale <- e_fv23c_three_cone_cv.out_scale$lambda.min
+#e_fv23c_three_cone_bestlam <- 1
+e_fv23c_three_cone_lasso.pred_scale <- predict(e_fv23c_three_cone_lasso.mod_scale, s = e_fv23c_three_cone_bestlam_scale,
+    newx = e_fv23c_three_cone_x_scale[e_fv23c_three_cone_test, ])
+mean((e_fv23c_three_cone_lasso.pred_scale - e_fv23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+e_forty_vertical_2_shuttle <- combinecollege %>% select(forty, vertical, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fv2s_shuttle_x <- model.matrix(shuttle ~ ., e_forty_vertical_2_shuttle)
+e_fv2s_shuttle_y <- e_forty_vertical_2_shuttle$shuttle
+mean(e_fv2s_shuttle_y)
+
+set.seed(2)
+e_fv2s_shuttle_train <- sample(1:nrow(e_fv2s_shuttle_x), .8*nrow(e_fv2s_shuttle_x))
+e_fv2s_shuttle_test <- (-e_fv2s_shuttle_train)
+e_fv2s_shuttle_y.test <- e_fv2s_shuttle_y[e_fv2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fv2s_shuttle_lasso.mod <- glmnet(e_fv2s_shuttle_x[e_fv2s_shuttle_train, ], e_fv2s_shuttle_y[e_fv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fv2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_fv2s_shuttle_cv.out <- cv.glmnet(e_fv2s_shuttle_x[e_fv2s_shuttle_train, ], e_fv2s_shuttle_y[e_fv2s_shuttle_train], alpha = 1)
+#plot(e_fv2s_shuttle_cv.out)
+e_fv2s_shuttle_bestlam <- e_fv2s_shuttle_cv.out$lambda.min
+#e_fv2s_shuttle_bestlam <- 1
+e_fv2s_shuttle_lasso.pred <- predict(e_fv2s_shuttle_lasso.mod, s = e_fv2s_shuttle_bestlam,
+    newx = e_fv2s_shuttle_x[e_fv2s_shuttle_test, ])
+mean((e_fv2s_shuttle_lasso.pred - e_fv2s_shuttle_y.test)^2)
+
+e_fv2s_shuttle_out <- glmnet(e_fv2s_shuttle_x, e_fv2s_shuttle_y, alpha = 1, lambda = e_fv2s_shuttle_bestlam )
+coef(e_fv2s_shuttle_out)
+e_fv2s_shuttle_lasso.coef <- predict(e_fv2s_shuttle_out, type = "coefficients",
+    s = e_fv2s_shuttle_bestlam)[1:(ncol(e_forty_vertical_2_shuttle)+1), ]
+e_fv2s_shuttle_lasso.coef
+e_fv2s_shuttle_lasso.coef[e_fv2s_shuttle_lasso.coef != 0]
+
+ggplot(e_forty_vertical_2_shuttle[-e_fv2s_shuttle_train,] %>% mutate(pred = e_fv2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_fv2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(forty), e_forty_vertical_2_shuttle)
+e_fv2s_shuttle_y_scale <- (e_forty_vertical_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_fv2s_shuttle_train <- sample(1:nrow(e_fv2s_shuttle_x_scale), .8*nrow(e_fv2s_shuttle_x_scale))
+e_fv2s_shuttle_test <- (-e_fv2s_shuttle_train)
+e_fv2s_shuttle_y.test_scale <- e_fv2s_shuttle_y_scale[e_fv2s_shuttle_test]
+
+e_fv2s_shuttle_lasso.mod_scale <- glmnet(e_fv2s_shuttle_x_scale[e_fv2s_shuttle_train, ], e_fv2s_shuttle_y_scale[e_fv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fv2s_shuttle_cv.out_scale <- cv.glmnet(e_fv2s_shuttle_x_scale[e_fv2s_shuttle_train, ], e_fv2s_shuttle_y_scale[e_fv2s_shuttle_train], alpha = 1)
+#plot(e_fv2s_shuttle_cv.out)
+e_fv2s_shuttle_bestlam_scale <- e_fv2s_shuttle_cv.out_scale$lambda.min
+#e_fv2s_shuttle_bestlam <- 1
+e_fv2s_shuttle_lasso.pred_scale <- predict(e_fv2s_shuttle_lasso.mod_scale, s = e_fv2s_shuttle_bestlam_scale,
+    newx = e_fv2s_shuttle_x_scale[e_fv2s_shuttle_test, ])
+mean((e_fv2s_shuttle_lasso.pred_scale - e_fv2s_shuttle_y.test_scale)^2)
+```
+
+# If only has forty and vertical predict broad_jump
+```{r}
+e_update3 <- e_update2 %>% mutate(broad_jump = if_else(
+                           !is.na(forty) & !is.na(vertical) & is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][1] +
+                             e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][2] * forty +
+                             e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][3] * vertical +
+                             e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][4] * height +
+                             e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][5] * G +
+                             e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][6] * YPA +
+                             e_fv2bj_broad_jump_lasso.coef[e_fv2bj_broad_jump_lasso.coef != 0][7] * RushYds,
+                           broad_jump
+                         )) 
+```
+
+# Use vertical and broad_jump to predict
+```{r}
+e_broad_jump_vertical_2_forty <- combinecollege %>% select(broad_jump, vertical, forty, height, weight, c(9:21)) %>% na.omit()
+
+
+e_bjv2f_forty_x <- model.matrix(forty ~ ., e_broad_jump_vertical_2_forty)
+e_bjv2f_forty_y <- e_broad_jump_vertical_2_forty$forty
+mean(e_bjv2f_forty_y)
+
+set.seed(2)
+e_bjv2f_forty_train <- sample(1:nrow(e_bjv2f_forty_x), .8*nrow(e_bjv2f_forty_x))
+e_bjv2f_forty_test <- (-e_bjv2f_forty_train)
+e_bjv2f_forty_y.test <- e_bjv2f_forty_y[e_bjv2f_forty_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_bjv2f_forty_lasso.mod <- glmnet(e_bjv2f_forty_x[e_bjv2f_forty_train, ], e_bjv2f_forty_y[e_bjv2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_bjv2f_forty_lasso.mod)
+
+set.seed(1)
+e_bjv2f_forty_cv.out <- cv.glmnet(e_bjv2f_forty_x[e_bjv2f_forty_train, ], e_bjv2f_forty_y[e_bjv2f_forty_train], alpha = 1)
+#plot(e_bjv2f_forty_cv.out)
+e_bjv2f_forty_bestlam <- e_bjv2f_forty_cv.out$lambda.min
+#e_bjv2f_forty_bestlam <- 1
+e_bjv2f_forty_lasso.pred <- predict(e_bjv2f_forty_lasso.mod, s = e_bjv2f_forty_bestlam,
+    newx = e_bjv2f_forty_x[e_bjv2f_forty_test, ])
+mean((e_bjv2f_forty_lasso.pred - e_bjv2f_forty_y.test)^2)
+
+e_bjv2f_forty_out <- glmnet(e_bjv2f_forty_x, e_bjv2f_forty_y, alpha = 1, lambda = e_bjv2f_forty_bestlam )
+coef(e_bjv2f_forty_out)
+e_bjv2f_forty_lasso.coef <- predict(e_bjv2f_forty_out, type = "coefficients",
+    s = e_bjv2f_forty_bestlam)[1:(ncol(e_broad_jump_vertical_2_forty)+1), ]
+e_bjv2f_forty_lasso.coef
+e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0]
+
+ggplot(e_broad_jump_vertical_2_forty[-e_bjv2f_forty_train,] %>% mutate(pred = e_bjv2f_forty_lasso.pred),
+       aes(x = pred, forty)) +
+  geom_point()
+
+
+
+e_bjv2f_forty_x_scale <- model.matrix(scale(forty) ~ scale(broad_jump), e_broad_jump_vertical_2_forty)
+e_bjv2f_forty_y_scale <- (e_broad_jump_vertical_2_forty %>% mutate(forty = scale(forty)))$forty
+
+set.seed(2)
+e_bjv2f_forty_train <- sample(1:nrow(e_bjv2f_forty_x_scale), .8*nrow(e_bjv2f_forty_x_scale))
+e_bjv2f_forty_test <- (-e_bjv2f_forty_train)
+e_bjv2f_forty_y.test_scale <- e_bjv2f_forty_y_scale[e_bjv2f_forty_test]
+
+e_bjv2f_forty_lasso.mod_scale <- glmnet(e_bjv2f_forty_x_scale[e_bjv2f_forty_train, ], e_bjv2f_forty_y_scale[e_bjv2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_bjv2f_forty_cv.out_scale <- cv.glmnet(e_bjv2f_forty_x_scale[e_bjv2f_forty_train, ], e_bjv2f_forty_y_scale[e_bjv2f_forty_train], alpha = 1)
+#plot(e_bjv2f_forty_cv.out)
+e_bjv2f_forty_bestlam_scale <- e_bjv2f_forty_cv.out_scale$lambda.min
+#e_bjv2f_forty_bestlam <- 1
+e_bjv2f_forty_lasso.pred_scale <- predict(e_bjv2f_forty_lasso.mod_scale, s = e_bjv2f_forty_bestlam_scale,
+    newx = e_bjv2f_forty_x_scale[e_bjv2f_forty_test, ])
+mean((e_bjv2f_forty_lasso.pred_scale - e_bjv2f_forty_y.test_scale)^2)
+```
+
+```{r}
+e_broad_jump_vertical_2_three_cone <- combinecollege %>% select(broad_jump, vertical, three_cone, height, weight, c(9:21)) %>% na.omit()
+
+
+e_bjv23c_three_cone_x <- model.matrix(three_cone ~ ., e_broad_jump_vertical_2_three_cone)
+e_bjv23c_three_cone_y <- e_broad_jump_vertical_2_three_cone$three_cone
+mean(e_bjv23c_three_cone_y)
+
+set.seed(2)
+e_bjv23c_three_cone_train <- sample(1:nrow(e_bjv23c_three_cone_x), .8*nrow(e_bjv23c_three_cone_x))
+e_bjv23c_three_cone_test <- (-e_bjv23c_three_cone_train)
+e_bjv23c_three_cone_y.test <- e_bjv23c_three_cone_y[e_bjv23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_bjv23c_three_cone_lasso.mod <- glmnet(e_bjv23c_three_cone_x[e_bjv23c_three_cone_train, ], e_bjv23c_three_cone_y[e_bjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_bjv23c_three_cone_lasso.mod)
+
+set.seed(1)
+e_bjv23c_three_cone_cv.out <- cv.glmnet(e_bjv23c_three_cone_x[e_bjv23c_three_cone_train, ], e_bjv23c_three_cone_y[e_bjv23c_three_cone_train], alpha = 1)
+#plot(e_bjv23c_three_cone_cv.out)
+e_bjv23c_three_cone_bestlam <- e_bjv23c_three_cone_cv.out$lambda.min
+#e_bjv23c_three_cone_bestlam <- 1
+e_bjv23c_three_cone_lasso.pred <- predict(e_bjv23c_three_cone_lasso.mod, s = e_bjv23c_three_cone_bestlam,
+    newx = e_bjv23c_three_cone_x[e_bjv23c_three_cone_test, ])
+mean((e_bjv23c_three_cone_lasso.pred - e_bjv23c_three_cone_y.test)^2)
+
+e_bjv23c_three_cone_out <- glmnet(e_bjv23c_three_cone_x, e_bjv23c_three_cone_y, alpha = 1, lambda = e_bjv23c_three_cone_bestlam )
+coef(e_bjv23c_three_cone_out)
+e_bjv23c_three_cone_lasso.coef <- predict(e_bjv23c_three_cone_out, type = "coefficients",
+    s = e_bjv23c_three_cone_bestlam)[1:(ncol(e_broad_jump_vertical_2_three_cone)+1), ]
+e_bjv23c_three_cone_lasso.coef
+e_bjv23c_three_cone_lasso.coef[e_bjv23c_three_cone_lasso.coef != 0]
+
+ggplot(e_broad_jump_vertical_2_three_cone[-e_bjv23c_three_cone_train,] %>% mutate(pred = e_bjv23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+e_bjv23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(broad_jump), e_broad_jump_vertical_2_three_cone)
+e_bjv23c_three_cone_y_scale <- (e_broad_jump_vertical_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+e_bjv23c_three_cone_train <- sample(1:nrow(e_bjv23c_three_cone_x_scale), .8*nrow(e_bjv23c_three_cone_x_scale))
+e_bjv23c_three_cone_test <- (-e_bjv23c_three_cone_train)
+e_bjv23c_three_cone_y.test_scale <- e_bjv23c_three_cone_y_scale[e_bjv23c_three_cone_test]
+
+e_bjv23c_three_cone_lasso.mod_scale <- glmnet(e_bjv23c_three_cone_x_scale[e_bjv23c_three_cone_train, ], e_bjv23c_three_cone_y_scale[e_bjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_bjv23c_three_cone_cv.out_scale <- cv.glmnet(e_bjv23c_three_cone_x_scale[e_bjv23c_three_cone_train, ], e_bjv23c_three_cone_y_scale[e_bjv23c_three_cone_train], alpha = 1)
+#plot(e_bjv23c_three_cone_cv.out)
+e_bjv23c_three_cone_bestlam_scale <- e_bjv23c_three_cone_cv.out_scale$lambda.min
+#e_bjv23c_three_cone_bestlam <- 1
+e_bjv23c_three_cone_lasso.pred_scale <- predict(e_bjv23c_three_cone_lasso.mod_scale, s = e_bjv23c_three_cone_bestlam_scale,
+    newx = e_bjv23c_three_cone_x_scale[e_bjv23c_three_cone_test, ])
+mean((e_bjv23c_three_cone_lasso.pred_scale - e_bjv23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+e_broad_jump_vertical_2_shuttle <- combinecollege %>% select(broad_jump, vertical, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_bjv2s_shuttle_x <- model.matrix(shuttle ~ ., e_broad_jump_vertical_2_shuttle)
+e_bjv2s_shuttle_y <- e_broad_jump_vertical_2_shuttle$shuttle
+mean(e_bjv2s_shuttle_y)
+
+set.seed(2)
+e_bjv2s_shuttle_train <- sample(1:nrow(e_bjv2s_shuttle_x), .8*nrow(e_bjv2s_shuttle_x))
+e_bjv2s_shuttle_test <- (-e_bjv2s_shuttle_train)
+e_bjv2s_shuttle_y.test <- e_bjv2s_shuttle_y[e_bjv2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_bjv2s_shuttle_lasso.mod <- glmnet(e_bjv2s_shuttle_x[e_bjv2s_shuttle_train, ], e_bjv2s_shuttle_y[e_bjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_bjv2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_bjv2s_shuttle_cv.out <- cv.glmnet(e_bjv2s_shuttle_x[e_bjv2s_shuttle_train, ], e_bjv2s_shuttle_y[e_bjv2s_shuttle_train], alpha = 1)
+#plot(e_bjv2s_shuttle_cv.out)
+e_bjv2s_shuttle_bestlam <- e_bjv2s_shuttle_cv.out$lambda.min
+#e_bjv2s_shuttle_bestlam <- 1
+e_bjv2s_shuttle_lasso.pred <- predict(e_bjv2s_shuttle_lasso.mod, s = e_bjv2s_shuttle_bestlam,
+    newx = e_bjv2s_shuttle_x[e_bjv2s_shuttle_test, ])
+mean((e_bjv2s_shuttle_lasso.pred - e_bjv2s_shuttle_y.test)^2)
+
+e_bjv2s_shuttle_out <- glmnet(e_bjv2s_shuttle_x, e_bjv2s_shuttle_y, alpha = 1, lambda = e_bjv2s_shuttle_bestlam )
+coef(e_bjv2s_shuttle_out)
+e_bjv2s_shuttle_lasso.coef <- predict(e_bjv2s_shuttle_out, type = "coefficients",
+    s = e_bjv2s_shuttle_bestlam)[1:(ncol(e_broad_jump_vertical_2_shuttle)+1), ]
+e_bjv2s_shuttle_lasso.coef
+e_bjv2s_shuttle_lasso.coef[e_bjv2s_shuttle_lasso.coef != 0]
+
+ggplot(e_broad_jump_vertical_2_shuttle[-e_bjv2s_shuttle_train,] %>% mutate(pred = e_bjv2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_bjv2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump), e_broad_jump_vertical_2_shuttle)
+e_bjv2s_shuttle_y_scale <- (e_broad_jump_vertical_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_bjv2s_shuttle_train <- sample(1:nrow(e_bjv2s_shuttle_x_scale), .8*nrow(e_bjv2s_shuttle_x_scale))
+e_bjv2s_shuttle_test <- (-e_bjv2s_shuttle_train)
+e_bjv2s_shuttle_y.test_scale <- e_bjv2s_shuttle_y_scale[e_bjv2s_shuttle_test]
+
+e_bjv2s_shuttle_lasso.mod_scale <- glmnet(e_bjv2s_shuttle_x_scale[e_bjv2s_shuttle_train, ], e_bjv2s_shuttle_y_scale[e_bjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_bjv2s_shuttle_cv.out_scale <- cv.glmnet(e_bjv2s_shuttle_x_scale[e_bjv2s_shuttle_train, ], e_bjv2s_shuttle_y_scale[e_bjv2s_shuttle_train], alpha = 1)
+#plot(e_bjv2s_shuttle_cv.out)
+e_bjv2s_shuttle_bestlam_scale <- e_bjv2s_shuttle_cv.out_scale$lambda.min
+#e_bjv2s_shuttle_bestlam <- 1
+e_bjv2s_shuttle_lasso.pred_scale <- predict(e_bjv2s_shuttle_lasso.mod_scale, s = e_bjv2s_shuttle_bestlam_scale,
+    newx = e_bjv2s_shuttle_x_scale[e_bjv2s_shuttle_test, ])
+mean((e_bjv2s_shuttle_lasso.pred_scale - e_bjv2s_shuttle_y.test_scale)^2)
+```
+
+# If only has Broad_jump and vertical predict forty
+```{r}
+e_update4 <- e_update3 %>% mutate(forty = if_else(
+                           is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][1] +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][2] * broad_jump +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][3] * vertical +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][4] * height +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][5] * weight +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][6] * Cmp +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][7] * Att +
+                             e_bjv2f_forty_lasso.coef[e_bjv2f_forty_lasso.coef != 0][8] * RushYds,
+                           forty
+                         )) 
+```
+
+# Use forty, vertical, broad jump to predict
+```{r}
+e_forty_broad_jump_vertical_2_three_cone <- combinecollege %>% select(forty, broad_jump, vertical, three_cone, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fbjv23c_three_cone_x <- model.matrix(three_cone ~ ., e_forty_broad_jump_vertical_2_three_cone)
+e_fbjv23c_three_cone_y <- e_forty_broad_jump_vertical_2_three_cone$three_cone
+mean(e_fbjv23c_three_cone_y)
+
+set.seed(2)
+e_fbjv23c_three_cone_train <- sample(1:nrow(e_fbjv23c_three_cone_x), .8*nrow(e_fbjv23c_three_cone_x))
+e_fbjv23c_three_cone_test <- (-e_fbjv23c_three_cone_train)
+e_fbjv23c_three_cone_y.test <- e_fbjv23c_three_cone_y[e_fbjv23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fbjv23c_three_cone_lasso.mod <- glmnet(e_fbjv23c_three_cone_x[e_fbjv23c_three_cone_train, ], e_fbjv23c_three_cone_y[e_fbjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fbjv23c_three_cone_lasso.mod)
+
+set.seed(1)
+e_fbjv23c_three_cone_cv.out <- cv.glmnet(e_fbjv23c_three_cone_x[e_fbjv23c_three_cone_train, ], e_fbjv23c_three_cone_y[e_fbjv23c_three_cone_train], alpha = 1)
+#plot(e_fbjv23c_three_cone_cv.out)
+e_fbjv23c_three_cone_bestlam <- e_fbjv23c_three_cone_cv.out$lambda.min
+#e_fbjv23c_three_cone_bestlam <- 1
+e_fbjv23c_three_cone_lasso.pred <- predict(e_fbjv23c_three_cone_lasso.mod, s = e_fbjv23c_three_cone_bestlam,
+    newx = e_fbjv23c_three_cone_x[e_fbjv23c_three_cone_test, ])
+mean((e_fbjv23c_three_cone_lasso.pred - e_fbjv23c_three_cone_y.test)^2)
+
+e_fbjv23c_three_cone_out <- glmnet(e_fbjv23c_three_cone_x, e_fbjv23c_three_cone_y, alpha = 1, lambda = e_fbjv23c_three_cone_bestlam )
+coef(e_fbjv23c_three_cone_out)
+e_fbjv23c_three_cone_lasso.coef <- predict(e_fbjv23c_three_cone_out, type = "coefficients",
+    s = e_fbjv23c_three_cone_bestlam)[1:(ncol(e_forty_broad_jump_vertical_2_three_cone)+1), ]
+e_fbjv23c_three_cone_lasso.coef
+e_fbjv23c_three_cone_lasso.coef[e_fbjv23c_three_cone_lasso.coef != 0]
+
+ggplot(e_forty_broad_jump_vertical_2_three_cone[-e_fbjv23c_three_cone_train,] %>% mutate(pred = e_fbjv23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+e_fbjv23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(broad_jump), e_forty_broad_jump_vertical_2_three_cone)
+e_fbjv23c_three_cone_y_scale <- (e_forty_broad_jump_vertical_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+e_fbjv23c_three_cone_train <- sample(1:nrow(e_fbjv23c_three_cone_x_scale), .8*nrow(e_fbjv23c_three_cone_x_scale))
+e_fbjv23c_three_cone_test <- (-e_fbjv23c_three_cone_train)
+e_fbjv23c_three_cone_y.test_scale <- e_fbjv23c_three_cone_y_scale[e_fbjv23c_three_cone_test]
+
+e_fbjv23c_three_cone_lasso.mod_scale <- glmnet(e_fbjv23c_three_cone_x_scale[e_fbjv23c_three_cone_train, ], e_fbjv23c_three_cone_y_scale[e_fbjv23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fbjv23c_three_cone_cv.out_scale <- cv.glmnet(e_fbjv23c_three_cone_x_scale[e_fbjv23c_three_cone_train, ], e_fbjv23c_three_cone_y_scale[e_fbjv23c_three_cone_train], alpha = 1)
+#plot(e_fbjv23c_three_cone_cv.out)
+e_fbjv23c_three_cone_bestlam_scale <- e_fbjv23c_three_cone_cv.out_scale$lambda.min
+#e_fbjv23c_three_cone_bestlam <- 1
+e_fbjv23c_three_cone_lasso.pred_scale <- predict(e_fbjv23c_three_cone_lasso.mod_scale, s = e_fbjv23c_three_cone_bestlam_scale,
+    newx = e_fbjv23c_three_cone_x_scale[e_fbjv23c_three_cone_test, ])
+mean((e_fbjv23c_three_cone_lasso.pred_scale - e_fbjv23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+e_forty_broad_jump_vertical_2_shuttle <- combinecollege %>% select(forty, broad_jump, vertical, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fbjv2s_shuttle_x <- model.matrix(shuttle ~ ., e_forty_broad_jump_vertical_2_shuttle)
+e_fbjv2s_shuttle_y <- e_forty_broad_jump_vertical_2_shuttle$shuttle
+mean(e_fbjv2s_shuttle_y)
+
+set.seed(2)
+e_fbjv2s_shuttle_train <- sample(1:nrow(e_fbjv2s_shuttle_x), .8*nrow(e_fbjv2s_shuttle_x))
+e_fbjv2s_shuttle_test <- (-e_fbjv2s_shuttle_train)
+e_fbjv2s_shuttle_y.test <- e_fbjv2s_shuttle_y[e_fbjv2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fbjv2s_shuttle_lasso.mod <- glmnet(e_fbjv2s_shuttle_x[e_fbjv2s_shuttle_train, ], e_fbjv2s_shuttle_y[e_fbjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fbjv2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_fbjv2s_shuttle_cv.out <- cv.glmnet(e_fbjv2s_shuttle_x[e_fbjv2s_shuttle_train, ], e_fbjv2s_shuttle_y[e_fbjv2s_shuttle_train], alpha = 1)
+#plot(e_fbjv2s_shuttle_cv.out)
+e_fbjv2s_shuttle_bestlam <- e_fbjv2s_shuttle_cv.out$lambda.min
+#e_fbjv2s_shuttle_bestlam <- 1
+e_fbjv2s_shuttle_lasso.pred <- predict(e_fbjv2s_shuttle_lasso.mod, s = e_fbjv2s_shuttle_bestlam,
+    newx = e_fbjv2s_shuttle_x[e_fbjv2s_shuttle_test, ])
+mean((e_fbjv2s_shuttle_lasso.pred - e_fbjv2s_shuttle_y.test)^2)
+
+e_fbjv2s_shuttle_out <- glmnet(e_fbjv2s_shuttle_x, e_fbjv2s_shuttle_y, alpha = 1, lambda = e_fbjv2s_shuttle_bestlam )
+coef(e_fbjv2s_shuttle_out)
+e_fbjv2s_shuttle_lasso.coef <- predict(e_fbjv2s_shuttle_out, type = "coefficients",
+    s = e_fbjv2s_shuttle_bestlam)[1:(ncol(e_forty_broad_jump_vertical_2_shuttle)+1), ]
+e_fbjv2s_shuttle_lasso.coef
+e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0]
+
+ggplot(e_forty_broad_jump_vertical_2_shuttle[-e_fbjv2s_shuttle_train,] %>% mutate(pred = e_fbjv2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_fbjv2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump), e_forty_broad_jump_vertical_2_shuttle)
+e_fbjv2s_shuttle_y_scale <- (e_forty_broad_jump_vertical_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_fbjv2s_shuttle_train <- sample(1:nrow(e_fbjv2s_shuttle_x_scale), .8*nrow(e_fbjv2s_shuttle_x_scale))
+e_fbjv2s_shuttle_test <- (-e_fbjv2s_shuttle_train)
+e_fbjv2s_shuttle_y.test_scale <- e_fbjv2s_shuttle_y_scale[e_fbjv2s_shuttle_test]
+
+e_fbjv2s_shuttle_lasso.mod_scale <- glmnet(e_fbjv2s_shuttle_x_scale[e_fbjv2s_shuttle_train, ], e_fbjv2s_shuttle_y_scale[e_fbjv2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fbjv2s_shuttle_cv.out_scale <- cv.glmnet(e_fbjv2s_shuttle_x_scale[e_fbjv2s_shuttle_train, ], e_fbjv2s_shuttle_y_scale[e_fbjv2s_shuttle_train], alpha = 1)
+#plot(e_fbjv2s_shuttle_cv.out)
+e_fbjv2s_shuttle_bestlam_scale <- e_fbjv2s_shuttle_cv.out_scale$lambda.min
+#e_fbjv2s_shuttle_bestlam <- 1
+e_fbjv2s_shuttle_lasso.pred_scale <- predict(e_fbjv2s_shuttle_lasso.mod_scale, s = e_fbjv2s_shuttle_bestlam_scale,
+    newx = e_fbjv2s_shuttle_x_scale[e_fbjv2s_shuttle_test, ])
+mean((e_fbjv2s_shuttle_lasso.pred_scale - e_fbjv2s_shuttle_y.test_scale)^2)
+```
+
+# If only has forty, broad_jump and vertical predict shuttle
+```{r}
+e_update5 <- e_update4 %>% mutate(three_cone = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & is.na(shuttle),
+                           e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][1] +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][2] * forty +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][3] * broad_jump +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][4] * vertical +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][5] * height +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][6] * YPA +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][7] *  AYPA +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][8] * RushAtt +
+                             e_fbjv2s_shuttle_lasso.coef[e_fbjv2s_shuttle_lasso.coef != 0][9] * RushYds,
+                           three_cone
+                         )) 
+```
+
+# Use forty, three cone, and shuttle to predict
+```{r}
+e_forty_three_cone_shuttle_2_vertical <- combinecollege %>% select(forty, three_cone, shuttle, vertical, height, weight, c(9:21)) %>% na.omit()
+
+
+e_f3cs2v_vertical_x <- model.matrix(vertical ~ ., e_forty_three_cone_shuttle_2_vertical)
+e_f3cs2v_vertical_y <- e_forty_three_cone_shuttle_2_vertical$vertical
+mean(e_f3cs2v_vertical_y)
+
+set.seed(2)
+e_f3cs2v_vertical_train <- sample(1:nrow(e_f3cs2v_vertical_x), .8*nrow(e_f3cs2v_vertical_x))
+e_f3cs2v_vertical_test <- (-e_f3cs2v_vertical_train)
+e_f3cs2v_vertical_y.test <- e_f3cs2v_vertical_y[e_f3cs2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_f3cs2v_vertical_lasso.mod <- glmnet(e_f3cs2v_vertical_x[e_f3cs2v_vertical_train, ], e_f3cs2v_vertical_y[e_f3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_f3cs2v_vertical_lasso.mod)
+
+set.seed(1)
+e_f3cs2v_vertical_cv.out <- cv.glmnet(e_f3cs2v_vertical_x[e_f3cs2v_vertical_train, ], e_f3cs2v_vertical_y[e_f3cs2v_vertical_train], alpha = 1)
+#plot(e_f3cs2v_vertical_cv.out)
+e_f3cs2v_vertical_bestlam <- e_f3cs2v_vertical_cv.out$lambda.min
+#e_f3cs2v_vertical_bestlam <- 1
+e_f3cs2v_vertical_lasso.pred <- predict(e_f3cs2v_vertical_lasso.mod, s = e_f3cs2v_vertical_bestlam,
+    newx = e_f3cs2v_vertical_x[e_f3cs2v_vertical_test, ])
+mean((e_f3cs2v_vertical_lasso.pred - e_f3cs2v_vertical_y.test)^2)
+
+e_f3cs2v_vertical_out <- glmnet(e_f3cs2v_vertical_x, e_f3cs2v_vertical_y, alpha = 1, lambda = e_f3cs2v_vertical_bestlam )
+coef(e_f3cs2v_vertical_out)
+e_f3cs2v_vertical_lasso.coef <- predict(e_f3cs2v_vertical_out, type = "coefficients",
+    s = e_f3cs2v_vertical_bestlam)[1:(ncol(e_forty_three_cone_shuttle_2_vertical)+1), ]
+e_f3cs2v_vertical_lasso.coef
+e_f3cs2v_vertical_lasso.coef[e_f3cs2v_vertical_lasso.coef != 0]
+
+ggplot(e_forty_three_cone_shuttle_2_vertical[-e_f3cs2v_vertical_train,] %>% mutate(pred = e_f3cs2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+e_f3cs2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(three_cone), e_forty_three_cone_shuttle_2_vertical)
+e_f3cs2v_vertical_y_scale <- (e_forty_three_cone_shuttle_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+e_f3cs2v_vertical_train <- sample(1:nrow(e_f3cs2v_vertical_x_scale), .8*nrow(e_f3cs2v_vertical_x_scale))
+e_f3cs2v_vertical_test <- (-e_f3cs2v_vertical_train)
+e_f3cs2v_vertical_y.test_scale <- e_f3cs2v_vertical_y_scale[e_f3cs2v_vertical_test]
+
+e_f3cs2v_vertical_lasso.mod_scale <- glmnet(e_f3cs2v_vertical_x_scale[e_f3cs2v_vertical_train, ], e_f3cs2v_vertical_y_scale[e_f3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_f3cs2v_vertical_cv.out_scale <- cv.glmnet(e_f3cs2v_vertical_x_scale[e_f3cs2v_vertical_train, ], e_f3cs2v_vertical_y_scale[e_f3cs2v_vertical_train], alpha = 1)
+#plot(e_f3cs2v_vertical_cv.out)
+e_f3cs2v_vertical_bestlam_scale <- e_f3cs2v_vertical_cv.out_scale$lambda.min
+#e_f3cs2v_vertical_bestlam <- 1
+e_f3cs2v_vertical_lasso.pred_scale <- predict(e_f3cs2v_vertical_lasso.mod_scale, s = e_f3cs2v_vertical_bestlam_scale,
+    newx = e_f3cs2v_vertical_x_scale[e_f3cs2v_vertical_test, ])
+mean((e_f3cs2v_vertical_lasso.pred_scale - e_f3cs2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+e_forty_three_cone_shuttle_2_broad_jump <- combinecollege %>% select(forty, three_cone, shuttle, broad_jump, height, weight, c(9:21)) %>% na.omit()
+
+
+e_f3cs2bj_broad_jump_x <- model.matrix(broad_jump ~ ., e_forty_three_cone_shuttle_2_broad_jump)
+e_f3cs2bj_broad_jump_y <- e_forty_three_cone_shuttle_2_broad_jump$broad_jump
+mean(e_f3cs2bj_broad_jump_y)
+
+set.seed(2)
+e_f3cs2bj_broad_jump_train <- sample(1:nrow(e_f3cs2bj_broad_jump_x), .8*nrow(e_f3cs2bj_broad_jump_x))
+e_f3cs2bj_broad_jump_test <- (-e_f3cs2bj_broad_jump_train)
+e_f3cs2bj_broad_jump_y.test <- e_f3cs2bj_broad_jump_y[e_f3cs2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_f3cs2bj_broad_jump_lasso.mod <- glmnet(e_f3cs2bj_broad_jump_x[e_f3cs2bj_broad_jump_train, ], e_f3cs2bj_broad_jump_y[e_f3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_f3cs2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+e_f3cs2bj_broad_jump_cv.out <- cv.glmnet(e_f3cs2bj_broad_jump_x[e_f3cs2bj_broad_jump_train, ], e_f3cs2bj_broad_jump_y[e_f3cs2bj_broad_jump_train], alpha = 1)
+#plot(e_f3cs2bj_broad_jump_cv.out)
+e_f3cs2bj_broad_jump_bestlam <- e_f3cs2bj_broad_jump_cv.out$lambda.min
+#e_f3cs2bj_broad_jump_bestlam <- 1
+e_f3cs2bj_broad_jump_lasso.pred <- predict(e_f3cs2bj_broad_jump_lasso.mod, s = e_f3cs2bj_broad_jump_bestlam,
+    newx = e_f3cs2bj_broad_jump_x[e_f3cs2bj_broad_jump_test, ])
+mean((e_f3cs2bj_broad_jump_lasso.pred - e_f3cs2bj_broad_jump_y.test)^2)
+
+e_f3cs2bj_broad_jump_out <- glmnet(e_f3cs2bj_broad_jump_x, e_f3cs2bj_broad_jump_y, alpha = 1, lambda = e_f3cs2bj_broad_jump_bestlam )
+coef(e_f3cs2bj_broad_jump_out)
+e_f3cs2bj_broad_jump_lasso.coef <- predict(e_f3cs2bj_broad_jump_out, type = "coefficients",
+    s = e_f3cs2bj_broad_jump_bestlam)[1:(ncol(e_forty_three_cone_shuttle_2_broad_jump)+1), ]
+e_f3cs2bj_broad_jump_lasso.coef
+e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0]
+
+ggplot(e_forty_three_cone_shuttle_2_broad_jump[-e_f3cs2bj_broad_jump_train,] %>% mutate(pred = e_f3cs2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+e_f3cs2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(three_cone), e_forty_three_cone_shuttle_2_broad_jump)
+e_f3cs2bj_broad_jump_y_scale <- (e_forty_three_cone_shuttle_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+e_f3cs2bj_broad_jump_train <- sample(1:nrow(e_f3cs2bj_broad_jump_x_scale), .8*nrow(e_f3cs2bj_broad_jump_x_scale))
+e_f3cs2bj_broad_jump_test <- (-e_f3cs2bj_broad_jump_train)
+e_f3cs2bj_broad_jump_y.test_scale <- e_f3cs2bj_broad_jump_y_scale[e_f3cs2bj_broad_jump_test]
+
+e_f3cs2bj_broad_jump_lasso.mod_scale <- glmnet(e_f3cs2bj_broad_jump_x_scale[e_f3cs2bj_broad_jump_train, ], e_f3cs2bj_broad_jump_y_scale[e_f3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_f3cs2bj_broad_jump_cv.out_scale <- cv.glmnet(e_f3cs2bj_broad_jump_x_scale[e_f3cs2bj_broad_jump_train, ], e_f3cs2bj_broad_jump_y_scale[e_f3cs2bj_broad_jump_train], alpha = 1)
+#plot(e_f3cs2bj_broad_jump_cv.out)
+e_f3cs2bj_broad_jump_bestlam_scale <- e_f3cs2bj_broad_jump_cv.out_scale$lambda.min
+#e_f3cs2bj_broad_jump_bestlam <- 1
+e_f3cs2bj_broad_jump_lasso.pred_scale <- predict(e_f3cs2bj_broad_jump_lasso.mod_scale, s = e_f3cs2bj_broad_jump_bestlam_scale,
+    newx = e_f3cs2bj_broad_jump_x_scale[e_f3cs2bj_broad_jump_test, ])
+mean((e_f3cs2bj_broad_jump_lasso.pred_scale - e_f3cs2bj_broad_jump_y.test_scale)^2)
+```
+
+# If only has forty, three cone and shuttle predict broad jump
+```{r}
+e_update6 <- e_update5 %>% mutate(broad_jump = if_else(
+                           !is.na(forty) & is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle),
+                           e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][1] +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][2] * forty +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][3] * three_cone +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][4] * shuttle +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][5] * height +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][6] * weight +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][7] * G +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][8] * Cmp +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][9] * Att +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][10] * Pct +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][11] * Yds +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][12] * YPA +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][13] * AYPA +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][14] * TD +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][15] * Int +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][16] * Rate +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][17] * RushAtt +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][18] * RushYds +
+                             e_f3cs2bj_broad_jump_lasso.coef[e_f3cs2bj_broad_jump_lasso.coef != 0][19] * as.numeric(ConfIndicator),
+                           broad_jump
+                         )) 
+```
+
+# Use vertical, broad_jump and 3 cone to predict
+```{r}
+e_vertical_broad_jump_three_cone_2_forty <- combinecollege %>% select(vertical, broad_jump, three_cone, forty, height, weight, c(9:21)) %>% na.omit()
+
+
+e_vbj3c2f_forty_x <- model.matrix(forty ~ ., e_vertical_broad_jump_three_cone_2_forty)
+e_vbj3c2f_forty_y <- e_vertical_broad_jump_three_cone_2_forty$forty
+mean(e_vbj3c2f_forty_y)
+
+set.seed(2)
+e_vbj3c2f_forty_train <- sample(1:nrow(e_vbj3c2f_forty_x), .8*nrow(e_vbj3c2f_forty_x))
+e_vbj3c2f_forty_test <- (-e_vbj3c2f_forty_train)
+e_vbj3c2f_forty_y.test <- e_vbj3c2f_forty_y[e_vbj3c2f_forty_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_vbj3c2f_forty_lasso.mod <- glmnet(e_vbj3c2f_forty_x[e_vbj3c2f_forty_train, ], e_vbj3c2f_forty_y[e_vbj3c2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_vbj3c2f_forty_lasso.mod)
+
+set.seed(1)
+e_vbj3c2f_forty_cv.out <- cv.glmnet(e_vbj3c2f_forty_x[e_vbj3c2f_forty_train, ], e_vbj3c2f_forty_y[e_vbj3c2f_forty_train], alpha = 1)
+#plot(e_vbj3c2f_forty_cv.out)
+e_vbj3c2f_forty_bestlam <- e_vbj3c2f_forty_cv.out$lambda.min
+#e_vbj3c2f_forty_bestlam <- 1
+e_vbj3c2f_forty_lasso.pred <- predict(e_vbj3c2f_forty_lasso.mod, s = e_vbj3c2f_forty_bestlam,
+    newx = e_vbj3c2f_forty_x[e_vbj3c2f_forty_test, ])
+mean((e_vbj3c2f_forty_lasso.pred - e_vbj3c2f_forty_y.test)^2)
+
+e_vbj3c2f_forty_out <- glmnet(e_vbj3c2f_forty_x, e_vbj3c2f_forty_y, alpha = 1, lambda = e_vbj3c2f_forty_bestlam )
+coef(e_vbj3c2f_forty_out)
+e_vbj3c2f_forty_lasso.coef <- predict(e_vbj3c2f_forty_out, type = "coefficients",
+    s = e_vbj3c2f_forty_bestlam)[1:(ncol(e_vertical_broad_jump_three_cone_2_forty)+1), ]
+e_vbj3c2f_forty_lasso.coef
+e_vbj3c2f_forty_lasso.coef[e_vbj3c2f_forty_lasso.coef != 0]
+
+ggplot(e_vertical_broad_jump_three_cone_2_forty[-e_vbj3c2f_forty_train,] %>% mutate(pred = e_vbj3c2f_forty_lasso.pred),
+       aes(x = pred, forty)) +
+  geom_point()
+
+
+
+e_vbj3c2f_forty_x_scale <- model.matrix(scale(forty) ~ scale(broad_jump), e_vertical_broad_jump_three_cone_2_forty)
+e_vbj3c2f_forty_y_scale <- (e_vertical_broad_jump_three_cone_2_forty %>% mutate(forty = scale(forty)))$forty
+
+set.seed(2)
+e_vbj3c2f_forty_train <- sample(1:nrow(e_vbj3c2f_forty_x_scale), .8*nrow(e_vbj3c2f_forty_x_scale))
+e_vbj3c2f_forty_test <- (-e_vbj3c2f_forty_train)
+e_vbj3c2f_forty_y.test_scale <- e_vbj3c2f_forty_y_scale[e_vbj3c2f_forty_test]
+
+e_vbj3c2f_forty_lasso.mod_scale <- glmnet(e_vbj3c2f_forty_x_scale[e_vbj3c2f_forty_train, ], e_vbj3c2f_forty_y_scale[e_vbj3c2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_vbj3c2f_forty_cv.out_scale <- cv.glmnet(e_vbj3c2f_forty_x_scale[e_vbj3c2f_forty_train, ], e_vbj3c2f_forty_y_scale[e_vbj3c2f_forty_train], alpha = 1)
+#plot(e_vbj3c2f_forty_cv.out)
+e_vbj3c2f_forty_bestlam_scale <- e_vbj3c2f_forty_cv.out_scale$lambda.min
+#e_vbj3c2f_forty_bestlam <- 1
+e_vbj3c2f_forty_lasso.pred_scale <- predict(e_vbj3c2f_forty_lasso.mod_scale, s = e_vbj3c2f_forty_bestlam_scale,
+    newx = e_vbj3c2f_forty_x_scale[e_vbj3c2f_forty_test, ])
+mean((e_vbj3c2f_forty_lasso.pred_scale - e_vbj3c2f_forty_y.test_scale)^2)
+```
+
+```{r}
+e_vertical_broad_jump_three_cone_2_shuttle <- combinecollege %>% select(vertical, broad_jump, three_cone, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_vbj3c2s_shuttle_x <- model.matrix(shuttle ~ ., e_vertical_broad_jump_three_cone_2_shuttle)
+e_vbj3c2s_shuttle_y <- e_vertical_broad_jump_three_cone_2_shuttle$shuttle
+mean(e_vbj3c2s_shuttle_y)
+
+set.seed(2)
+e_vbj3c2s_shuttle_train <- sample(1:nrow(e_vbj3c2s_shuttle_x), .8*nrow(e_vbj3c2s_shuttle_x))
+e_vbj3c2s_shuttle_test <- (-e_vbj3c2s_shuttle_train)
+e_vbj3c2s_shuttle_y.test <- e_vbj3c2s_shuttle_y[e_vbj3c2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_vbj3c2s_shuttle_lasso.mod <- glmnet(e_vbj3c2s_shuttle_x[e_vbj3c2s_shuttle_train, ], e_vbj3c2s_shuttle_y[e_vbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_vbj3c2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_vbj3c2s_shuttle_cv.out <- cv.glmnet(e_vbj3c2s_shuttle_x[e_vbj3c2s_shuttle_train, ], e_vbj3c2s_shuttle_y[e_vbj3c2s_shuttle_train], alpha = 1)
+#plot(e_vbj3c2s_shuttle_cv.out)
+e_vbj3c2s_shuttle_bestlam <- e_vbj3c2s_shuttle_cv.out$lambda.min
+#e_vbj3c2s_shuttle_bestlam <- 1
+e_vbj3c2s_shuttle_lasso.pred <- predict(e_vbj3c2s_shuttle_lasso.mod, s = e_vbj3c2s_shuttle_bestlam,
+    newx = e_vbj3c2s_shuttle_x[e_vbj3c2s_shuttle_test, ])
+mean((e_vbj3c2s_shuttle_lasso.pred - e_vbj3c2s_shuttle_y.test)^2)
+
+e_vbj3c2s_shuttle_out <- glmnet(e_vbj3c2s_shuttle_x, e_vbj3c2s_shuttle_y, alpha = 1, lambda = e_vbj3c2s_shuttle_bestlam )
+coef(e_vbj3c2s_shuttle_out)
+e_vbj3c2s_shuttle_lasso.coef <- predict(e_vbj3c2s_shuttle_out, type = "coefficients",
+    s = e_vbj3c2s_shuttle_bestlam)[1:(ncol(e_vertical_broad_jump_three_cone_2_shuttle)+1), ]
+e_vbj3c2s_shuttle_lasso.coef
+e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0]
+
+ggplot(e_vertical_broad_jump_three_cone_2_shuttle[-e_vbj3c2s_shuttle_train,] %>% mutate(pred = e_vbj3c2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_vbj3c2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump), e_vertical_broad_jump_three_cone_2_shuttle)
+e_vbj3c2s_shuttle_y_scale <- (e_vertical_broad_jump_three_cone_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_vbj3c2s_shuttle_train <- sample(1:nrow(e_vbj3c2s_shuttle_x_scale), .8*nrow(e_vbj3c2s_shuttle_x_scale))
+e_vbj3c2s_shuttle_test <- (-e_vbj3c2s_shuttle_train)
+e_vbj3c2s_shuttle_y.test_scale <- e_vbj3c2s_shuttle_y_scale[e_vbj3c2s_shuttle_test]
+
+e_vbj3c2s_shuttle_lasso.mod_scale <- glmnet(e_vbj3c2s_shuttle_x_scale[e_vbj3c2s_shuttle_train, ], e_vbj3c2s_shuttle_y_scale[e_vbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_vbj3c2s_shuttle_cv.out_scale <- cv.glmnet(e_vbj3c2s_shuttle_x_scale[e_vbj3c2s_shuttle_train, ], e_vbj3c2s_shuttle_y_scale[e_vbj3c2s_shuttle_train], alpha = 1)
+#plot(e_vbj3c2s_shuttle_cv.out)
+e_vbj3c2s_shuttle_bestlam_scale <- e_vbj3c2s_shuttle_cv.out_scale$lambda.min
+#e_vbj3c2s_shuttle_bestlam <- 1
+e_vbj3c2s_shuttle_lasso.pred_scale <- predict(e_vbj3c2s_shuttle_lasso.mod_scale, s = e_vbj3c2s_shuttle_bestlam_scale,
+    newx = e_vbj3c2s_shuttle_x_scale[e_vbj3c2s_shuttle_test, ])
+mean((e_vbj3c2s_shuttle_lasso.pred_scale - e_vbj3c2s_shuttle_y.test_scale)^2)
+```
+
+# If only has vertical, broad_jump and three cone predict forty
+```{r}
+e_update7 <- e_update6 %>% mutate(forty = if_else(
+                           is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle),
+                           e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][1] +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][2] * vertical +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][3] * broad_jump +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][4] * three_cone +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][5] * height +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][6] * Att +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][7] * YPA +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][8] * AYPA +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][9] * RushAtt +
+                             e_vbj3c2s_shuttle_lasso.coef[e_vbj3c2s_shuttle_lasso.coef != 0][10] * RushYds,
+                           forty
+                         )) 
+```
+
+# Use Forty, vertical, broad jump and three cone to predict shuttle
+```{r}
+e_forty_vertical_broad_jump_three_cone_2_shuttle <- combinecollege %>% select(forty, vertical, broad_jump, three_cone, shuttle, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fvbj3c2s_shuttle_x <- model.matrix(shuttle ~ ., e_forty_vertical_broad_jump_three_cone_2_shuttle)
+e_fvbj3c2s_shuttle_y <- e_forty_vertical_broad_jump_three_cone_2_shuttle$shuttle
+mean(e_fvbj3c2s_shuttle_y)
+
+set.seed(2)
+e_fvbj3c2s_shuttle_train <- sample(1:nrow(e_fvbj3c2s_shuttle_x), .8*nrow(e_fvbj3c2s_shuttle_x))
+e_fvbj3c2s_shuttle_test <- (-e_fvbj3c2s_shuttle_train)
+e_fvbj3c2s_shuttle_y.test <- e_fvbj3c2s_shuttle_y[e_fvbj3c2s_shuttle_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fvbj3c2s_shuttle_lasso.mod <- glmnet(e_fvbj3c2s_shuttle_x[e_fvbj3c2s_shuttle_train, ], e_fvbj3c2s_shuttle_y[e_fvbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fvbj3c2s_shuttle_lasso.mod)
+
+set.seed(1)
+e_fvbj3c2s_shuttle_cv.out <- cv.glmnet(e_fvbj3c2s_shuttle_x[e_fvbj3c2s_shuttle_train, ], e_fvbj3c2s_shuttle_y[e_fvbj3c2s_shuttle_train], alpha = 1)
+#plot(e_fvbj3c2s_shuttle_cv.out)
+e_fvbj3c2s_shuttle_bestlam <- e_fvbj3c2s_shuttle_cv.out$lambda.min
+#e_fvbj3c2s_shuttle_bestlam <- 1
+e_fvbj3c2s_shuttle_lasso.pred <- predict(e_fvbj3c2s_shuttle_lasso.mod, s = e_fvbj3c2s_shuttle_bestlam,
+    newx = e_fvbj3c2s_shuttle_x[e_fvbj3c2s_shuttle_test, ])
+mean((e_fvbj3c2s_shuttle_lasso.pred - e_fvbj3c2s_shuttle_y.test)^2)
+
+e_fvbj3c2s_shuttle_out <- glmnet(e_fvbj3c2s_shuttle_x, e_fvbj3c2s_shuttle_y, alpha = 1, lambda = e_fvbj3c2s_shuttle_bestlam )
+coef(e_fvbj3c2s_shuttle_out)
+e_fvbj3c2s_shuttle_lasso.coef <- predict(e_fvbj3c2s_shuttle_out, type = "coefficients",
+    s = e_fvbj3c2s_shuttle_bestlam)[1:(ncol(e_forty_vertical_broad_jump_three_cone_2_shuttle)+1), ]
+e_fvbj3c2s_shuttle_lasso.coef
+e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0]
+
+ggplot(e_forty_vertical_broad_jump_three_cone_2_shuttle[-e_fvbj3c2s_shuttle_train,] %>% mutate(pred = e_fvbj3c2s_shuttle_lasso.pred),
+       aes(x = pred, shuttle)) +
+  geom_point()
+
+
+
+e_fvbj3c2s_shuttle_x_scale <- model.matrix(scale(shuttle) ~ scale(broad_jump), e_forty_vertical_broad_jump_three_cone_2_shuttle)
+e_fvbj3c2s_shuttle_y_scale <- (e_forty_vertical_broad_jump_three_cone_2_shuttle %>% mutate(shuttle = scale(shuttle)))$shuttle
+
+set.seed(2)
+e_fvbj3c2s_shuttle_train <- sample(1:nrow(e_fvbj3c2s_shuttle_x_scale), .8*nrow(e_fvbj3c2s_shuttle_x_scale))
+e_fvbj3c2s_shuttle_test <- (-e_fvbj3c2s_shuttle_train)
+e_fvbj3c2s_shuttle_y.test_scale <- e_fvbj3c2s_shuttle_y_scale[e_fvbj3c2s_shuttle_test]
+
+e_fvbj3c2s_shuttle_lasso.mod_scale <- glmnet(e_fvbj3c2s_shuttle_x_scale[e_fvbj3c2s_shuttle_train, ], e_fvbj3c2s_shuttle_y_scale[e_fvbj3c2s_shuttle_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fvbj3c2s_shuttle_cv.out_scale <- cv.glmnet(e_fvbj3c2s_shuttle_x_scale[e_fvbj3c2s_shuttle_train, ], e_fvbj3c2s_shuttle_y_scale[e_fvbj3c2s_shuttle_train], alpha = 1)
+#plot(e_fvbj3c2s_shuttle_cv.out)
+e_fvbj3c2s_shuttle_bestlam_scale <- e_fvbj3c2s_shuttle_cv.out_scale$lambda.min
+#e_fvbj3c2s_shuttle_bestlam <- 1
+e_fvbj3c2s_shuttle_lasso.pred_scale <- predict(e_fvbj3c2s_shuttle_lasso.mod_scale, s = e_fvbj3c2s_shuttle_bestlam_scale,
+    newx = e_fvbj3c2s_shuttle_x_scale[e_fvbj3c2s_shuttle_test, ])
+mean((e_fvbj3c2s_shuttle_lasso.pred_scale - e_fvbj3c2s_shuttle_y.test_scale)^2)
+```
+
+```{r}
+e_update8 <- e_update7 %>% mutate(shuttle = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & is.na(shuttle),
+                           e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][1] +
+                             e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][2] * forty +
+                             e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][3] * three_cone +
+                             e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][4] * height +
+                             e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][5] * YPA +
+                             e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][6] * AYPA +
+                             e_fvbj3c2s_shuttle_lasso.coef[e_fvbj3c2s_shuttle_lasso.coef != 0][7] *  RushAtt,
+                           shuttle
+                         )) 
+```
+
+# Use Forty, vertical, broad jump and shuttle to predict three cone
+```{r}
+e_forty_vertical_broad_jump_shuttle_2_three_cone <- combinecollege %>% select(forty, vertical, broad_jump, shuttle, three_cone, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fvbjs23c_three_cone_x <- model.matrix(three_cone ~ ., e_forty_vertical_broad_jump_shuttle_2_three_cone)
+e_fvbjs23c_three_cone_y <- e_forty_vertical_broad_jump_shuttle_2_three_cone$three_cone
+mean(e_fvbjs23c_three_cone_y)
+
+set.seed(2)
+e_fvbjs23c_three_cone_train <- sample(1:nrow(e_fvbjs23c_three_cone_x), .8*nrow(e_fvbjs23c_three_cone_x))
+e_fvbjs23c_three_cone_test <- (-e_fvbjs23c_three_cone_train)
+e_fvbjs23c_three_cone_y.test <- e_fvbjs23c_three_cone_y[e_fvbjs23c_three_cone_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fvbjs23c_three_cone_lasso.mod <- glmnet(e_fvbjs23c_three_cone_x[e_fvbjs23c_three_cone_train, ], e_fvbjs23c_three_cone_y[e_fvbjs23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fvbjs23c_three_cone_lasso.mod)
+
+set.seed(1)
+e_fvbjs23c_three_cone_cv.out <- cv.glmnet(e_fvbjs23c_three_cone_x[e_fvbjs23c_three_cone_train, ], e_fvbjs23c_three_cone_y[e_fvbjs23c_three_cone_train], alpha = 1)
+#plot(e_fvbjs23c_three_cone_cv.out)
+e_fvbjs23c_three_cone_bestlam <- e_fvbjs23c_three_cone_cv.out$lambda.min
+#e_fvbjs23c_three_cone_bestlam <- 1
+e_fvbjs23c_three_cone_lasso.pred <- predict(e_fvbjs23c_three_cone_lasso.mod, s = e_fvbjs23c_three_cone_bestlam,
+    newx = e_fvbjs23c_three_cone_x[e_fvbjs23c_three_cone_test, ])
+mean((e_fvbjs23c_three_cone_lasso.pred - e_fvbjs23c_three_cone_y.test)^2)
+
+e_fvbjs23c_three_cone_out <- glmnet(e_fvbjs23c_three_cone_x, e_fvbjs23c_three_cone_y, alpha = 1, lambda = e_fvbjs23c_three_cone_bestlam )
+coef(e_fvbjs23c_three_cone_out)
+e_fvbjs23c_three_cone_lasso.coef <- predict(e_fvbjs23c_three_cone_out, type = "coefficients",
+    s = e_fvbjs23c_three_cone_bestlam)[1:(ncol(e_forty_vertical_broad_jump_shuttle_2_three_cone)+1), ]
+e_fvbjs23c_three_cone_lasso.coef
+e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0]
+
+ggplot(e_forty_vertical_broad_jump_shuttle_2_three_cone[-e_fvbjs23c_three_cone_train,] %>% mutate(pred = e_fvbjs23c_three_cone_lasso.pred),
+       aes(x = pred, three_cone)) +
+  geom_point()
+
+
+
+e_fvbjs23c_three_cone_x_scale <- model.matrix(scale(three_cone) ~ scale(broad_jump), e_forty_vertical_broad_jump_shuttle_2_three_cone)
+e_fvbjs23c_three_cone_y_scale <- (e_forty_vertical_broad_jump_shuttle_2_three_cone %>% mutate(three_cone = scale(three_cone)))$three_cone
+
+set.seed(2)
+e_fvbjs23c_three_cone_train <- sample(1:nrow(e_fvbjs23c_three_cone_x_scale), .8*nrow(e_fvbjs23c_three_cone_x_scale))
+e_fvbjs23c_three_cone_test <- (-e_fvbjs23c_three_cone_train)
+e_fvbjs23c_three_cone_y.test_scale <- e_fvbjs23c_three_cone_y_scale[e_fvbjs23c_three_cone_test]
+
+e_fvbjs23c_three_cone_lasso.mod_scale <- glmnet(e_fvbjs23c_three_cone_x_scale[e_fvbjs23c_three_cone_train, ], e_fvbjs23c_three_cone_y_scale[e_fvbjs23c_three_cone_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fvbjs23c_three_cone_cv.out_scale <- cv.glmnet(e_fvbjs23c_three_cone_x_scale[e_fvbjs23c_three_cone_train, ], e_fvbjs23c_three_cone_y_scale[e_fvbjs23c_three_cone_train], alpha = 1)
+#plot(e_fvbjs23c_three_cone_cv.out)
+e_fvbjs23c_three_cone_bestlam_scale <- e_fvbjs23c_three_cone_cv.out_scale$lambda.min
+#e_fvbjs23c_three_cone_bestlam <- 1
+e_fvbjs23c_three_cone_lasso.pred_scale <- predict(e_fvbjs23c_three_cone_lasso.mod_scale, s = e_fvbjs23c_three_cone_bestlam_scale,
+    newx = e_fvbjs23c_three_cone_x_scale[e_fvbjs23c_three_cone_test, ])
+mean((e_fvbjs23c_three_cone_lasso.pred_scale - e_fvbjs23c_three_cone_y.test_scale)^2)
+```
+
+```{r}
+e_update9 <- e_update8 %>% mutate(three_cone = if_else(
+                           !is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & is.na(three_cone) & !is.na(shuttle),
+                           e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][1] +
+                             e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][2] * vertical +
+                             e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][3] * broad_jump +
+                             e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][4] * shuttle +
+                             e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][5] * weight +
+                             e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][6] * Pct +
+                             e_fvbjs23c_three_cone_lasso.coef[e_fvbjs23c_three_cone_lasso.coef != 0][7] *  RushYds,
+                           three_cone
+                         )) 
+```
+
+# Use Forty, vertical, three cone and shuttle to predict broad_jump
+```{r}
+e_forty_vertical_three_cone_shuttle_2_broad_jump <- combinecollege %>% select(forty, vertical, three_cone, shuttle, broad_jump, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fv3cs2bj_broad_jump_x <- model.matrix(broad_jump ~ ., e_forty_vertical_three_cone_shuttle_2_broad_jump)
+e_fv3cs2bj_broad_jump_y <- e_forty_vertical_three_cone_shuttle_2_broad_jump$broad_jump
+mean(e_fv3cs2bj_broad_jump_y)
+
+set.seed(2)
+e_fv3cs2bj_broad_jump_train <- sample(1:nrow(e_fv3cs2bj_broad_jump_x), .8*nrow(e_fv3cs2bj_broad_jump_x))
+e_fv3cs2bj_broad_jump_test <- (-e_fv3cs2bj_broad_jump_train)
+e_fv3cs2bj_broad_jump_y.test <- e_fv3cs2bj_broad_jump_y[e_fv3cs2bj_broad_jump_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fv3cs2bj_broad_jump_lasso.mod <- glmnet(e_fv3cs2bj_broad_jump_x[e_fv3cs2bj_broad_jump_train, ], e_fv3cs2bj_broad_jump_y[e_fv3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fv3cs2bj_broad_jump_lasso.mod)
+
+set.seed(1)
+e_fv3cs2bj_broad_jump_cv.out <- cv.glmnet(e_fv3cs2bj_broad_jump_x[e_fv3cs2bj_broad_jump_train, ], e_fv3cs2bj_broad_jump_y[e_fv3cs2bj_broad_jump_train], alpha = 1)
+#plot(e_fv3cs2bj_broad_jump_cv.out)
+e_fv3cs2bj_broad_jump_bestlam <- e_fv3cs2bj_broad_jump_cv.out$lambda.min
+#e_fv3cs2bj_broad_jump_bestlam <- 1
+e_fv3cs2bj_broad_jump_lasso.pred <- predict(e_fv3cs2bj_broad_jump_lasso.mod, s = e_fv3cs2bj_broad_jump_bestlam,
+    newx = e_fv3cs2bj_broad_jump_x[e_fv3cs2bj_broad_jump_test, ])
+mean((e_fv3cs2bj_broad_jump_lasso.pred - e_fv3cs2bj_broad_jump_y.test)^2)
+
+e_fv3cs2bj_broad_jump_out <- glmnet(e_fv3cs2bj_broad_jump_x, e_fv3cs2bj_broad_jump_y, alpha = 1, lambda = e_fv3cs2bj_broad_jump_bestlam )
+coef(e_fv3cs2bj_broad_jump_out)
+e_fv3cs2bj_broad_jump_lasso.coef <- predict(e_fv3cs2bj_broad_jump_out, type = "coefficients",
+    s = e_fv3cs2bj_broad_jump_bestlam)[1:(ncol(e_forty_vertical_three_cone_shuttle_2_broad_jump)+1), ]
+e_fv3cs2bj_broad_jump_lasso.coef
+e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0]
+
+ggplot(e_forty_vertical_three_cone_shuttle_2_broad_jump[-e_fv3cs2bj_broad_jump_train,] %>% mutate(pred = e_fv3cs2bj_broad_jump_lasso.pred),
+       aes(x = pred, broad_jump)) +
+  geom_point()
+
+
+
+e_fv3cs2bj_broad_jump_x_scale <- model.matrix(scale(broad_jump) ~ scale(three_cone), e_forty_vertical_three_cone_shuttle_2_broad_jump)
+e_fv3cs2bj_broad_jump_y_scale <- (e_forty_vertical_three_cone_shuttle_2_broad_jump %>% mutate(broad_jump = scale(broad_jump)))$broad_jump
+
+set.seed(2)
+e_fv3cs2bj_broad_jump_train <- sample(1:nrow(e_fv3cs2bj_broad_jump_x_scale), .8*nrow(e_fv3cs2bj_broad_jump_x_scale))
+e_fv3cs2bj_broad_jump_test <- (-e_fv3cs2bj_broad_jump_train)
+e_fv3cs2bj_broad_jump_y.test_scale <- e_fv3cs2bj_broad_jump_y_scale[e_fv3cs2bj_broad_jump_test]
+
+e_fv3cs2bj_broad_jump_lasso.mod_scale <- glmnet(e_fv3cs2bj_broad_jump_x_scale[e_fv3cs2bj_broad_jump_train, ], e_fv3cs2bj_broad_jump_y_scale[e_fv3cs2bj_broad_jump_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fv3cs2bj_broad_jump_cv.out_scale <- cv.glmnet(e_fv3cs2bj_broad_jump_x_scale[e_fv3cs2bj_broad_jump_train, ], e_fv3cs2bj_broad_jump_y_scale[e_fv3cs2bj_broad_jump_train], alpha = 1)
+#plot(e_fv3cs2bj_broad_jump_cv.out)
+e_fv3cs2bj_broad_jump_bestlam_scale <- e_fv3cs2bj_broad_jump_cv.out_scale$lambda.min
+#e_fv3cs2bj_broad_jump_bestlam <- 1
+e_fv3cs2bj_broad_jump_lasso.pred_scale <- predict(e_fv3cs2bj_broad_jump_lasso.mod_scale, s = e_fv3cs2bj_broad_jump_bestlam_scale,
+    newx = e_fv3cs2bj_broad_jump_x_scale[e_fv3cs2bj_broad_jump_test, ])
+mean((e_fv3cs2bj_broad_jump_lasso.pred_scale - e_fv3cs2bj_broad_jump_y.test_scale)^2)
+```
+
+```{r}
+e_update10 <- e_update9 %>% mutate(broad_jump = if_else(
+                           !is.na(forty) & !is.na(vertical) & is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle),
+                           e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][1] +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][2] * forty +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][3] * vertical +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][4] * three_cone +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][5] * height +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][6] * G +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][7] *  RushYds +
+                             e_fv3cs2bj_broad_jump_lasso.coef[e_fv3cs2bj_broad_jump_lasso.coef != 0][8] *  as.numeric(ConfIndicator),
+                           broad_jump
+                         )) 
+```
+
+# Use Forty, broad jump, three cone and shuttle to predict vertical 
+```{r}
+e_forty_broad_jump_three_cone_shuttle_2_vertical <- combinecollege %>% select(forty, broad_jump, three_cone, shuttle, vertical, height, weight, c(9:21)) %>% na.omit()
+
+
+e_fbj3cs2v_vertical_x <- model.matrix(vertical ~ ., e_forty_broad_jump_three_cone_shuttle_2_vertical)
+e_fbj3cs2v_vertical_y <- e_forty_broad_jump_three_cone_shuttle_2_vertical$vertical
+mean(e_fbj3cs2v_vertical_y)
+
+set.seed(2)
+e_fbj3cs2v_vertical_train <- sample(1:nrow(e_fbj3cs2v_vertical_x), .8*nrow(e_fbj3cs2v_vertical_x))
+e_fbj3cs2v_vertical_test <- (-e_fbj3cs2v_vertical_train)
+e_fbj3cs2v_vertical_y.test <- e_fbj3cs2v_vertical_y[e_fbj3cs2v_vertical_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_fbj3cs2v_vertical_lasso.mod <- glmnet(e_fbj3cs2v_vertical_x[e_fbj3cs2v_vertical_train, ], e_fbj3cs2v_vertical_y[e_fbj3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_fbj3cs2v_vertical_lasso.mod)
+
+set.seed(1)
+e_fbj3cs2v_vertical_cv.out <- cv.glmnet(e_fbj3cs2v_vertical_x[e_fbj3cs2v_vertical_train, ], e_fbj3cs2v_vertical_y[e_fbj3cs2v_vertical_train], alpha = 1)
+#plot(e_fbj3cs2v_vertical_cv.out)
+e_fbj3cs2v_vertical_bestlam <- e_fbj3cs2v_vertical_cv.out$lambda.min
+#e_fbj3cs2v_vertical_bestlam <- 1
+e_fbj3cs2v_vertical_lasso.pred <- predict(e_fbj3cs2v_vertical_lasso.mod, s = e_fbj3cs2v_vertical_bestlam,
+    newx = e_fbj3cs2v_vertical_x[e_fbj3cs2v_vertical_test, ])
+mean((e_fbj3cs2v_vertical_lasso.pred - e_fbj3cs2v_vertical_y.test)^2)
+
+e_fbj3cs2v_vertical_out <- glmnet(e_fbj3cs2v_vertical_x, e_fbj3cs2v_vertical_y, alpha = 1, lambda = e_fbj3cs2v_vertical_bestlam )
+coef(e_fbj3cs2v_vertical_out)
+e_fbj3cs2v_vertical_lasso.coef <- predict(e_fbj3cs2v_vertical_out, type = "coefficients",
+    s = e_fbj3cs2v_vertical_bestlam)[1:(ncol(e_forty_broad_jump_three_cone_shuttle_2_vertical)+1), ]
+e_fbj3cs2v_vertical_lasso.coef
+e_fbj3cs2v_vertical_lasso.coef[e_fbj3cs2v_vertical_lasso.coef != 0]
+
+ggplot(e_forty_broad_jump_three_cone_shuttle_2_vertical[-e_fbj3cs2v_vertical_train,] %>% mutate(pred = e_fbj3cs2v_vertical_lasso.pred),
+       aes(x = pred, vertical)) +
+  geom_point()
+
+
+
+e_fbj3cs2v_vertical_x_scale <- model.matrix(scale(vertical) ~ scale(three_cone), e_forty_broad_jump_three_cone_shuttle_2_vertical)
+e_fbj3cs2v_vertical_y_scale <- (e_forty_broad_jump_three_cone_shuttle_2_vertical %>% mutate(vertical = scale(vertical)))$vertical
+
+set.seed(2)
+e_fbj3cs2v_vertical_train <- sample(1:nrow(e_fbj3cs2v_vertical_x_scale), .8*nrow(e_fbj3cs2v_vertical_x_scale))
+e_fbj3cs2v_vertical_test <- (-e_fbj3cs2v_vertical_train)
+e_fbj3cs2v_vertical_y.test_scale <- e_fbj3cs2v_vertical_y_scale[e_fbj3cs2v_vertical_test]
+
+e_fbj3cs2v_vertical_lasso.mod_scale <- glmnet(e_fbj3cs2v_vertical_x_scale[e_fbj3cs2v_vertical_train, ], e_fbj3cs2v_vertical_y_scale[e_fbj3cs2v_vertical_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_fbj3cs2v_vertical_cv.out_scale <- cv.glmnet(e_fbj3cs2v_vertical_x_scale[e_fbj3cs2v_vertical_train, ], e_fbj3cs2v_vertical_y_scale[e_fbj3cs2v_vertical_train], alpha = 1)
+#plot(e_fbj3cs2v_vertical_cv.out)
+e_fbj3cs2v_vertical_bestlam_scale <- e_fbj3cs2v_vertical_cv.out_scale$lambda.min
+#e_fbj3cs2v_vertical_bestlam <- 1
+e_fbj3cs2v_vertical_lasso.pred_scale <- predict(e_fbj3cs2v_vertical_lasso.mod_scale, s = e_fbj3cs2v_vertical_bestlam_scale,
+    newx = e_fbj3cs2v_vertical_x_scale[e_fbj3cs2v_vertical_test, ])
+mean((e_fbj3cs2v_vertical_lasso.pred_scale - e_fbj3cs2v_vertical_y.test_scale)^2)
+```
+
+```{r}
+e_update11 <- e_update10 %>% mutate(vertical = if_else(
+                           !is.na(forty) & is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle),
+                           e_fbj3cs2v_vertical_lasso.coef[e_fbj3cs2v_vertical_lasso.coef != 0][1] +
+                             e_fbj3cs2v_vertical_lasso.coef[e_fbj3cs2v_vertical_lasso.coef != 0][2] * forty +
+                             e_fbj3cs2v_vertical_lasso.coef[e_fbj3cs2v_vertical_lasso.coef != 0][3] * broad_jump +
+                             e_fbj3cs2v_vertical_lasso.coef[e_fbj3cs2v_vertical_lasso.coef != 0][4] * three_cone,
+                           vertical
+                         )) 
+```
+
+# Use vertical, broad jump, three cone and shuttle to predict forty 
+```{r}
+e_vertical_broad_jump_three_cone_shuttle_2_forty <- combinecollege %>% select(vertical, broad_jump, three_cone, shuttle, forty, height, weight, c(9:21)) %>% na.omit()
+
+
+e_vbj3cs2f_forty_x <- model.matrix(forty ~ ., e_vertical_broad_jump_three_cone_shuttle_2_forty)
+e_vbj3cs2f_forty_y <- e_vertical_broad_jump_three_cone_shuttle_2_forty$forty
+mean(e_vbj3cs2f_forty_y)
+
+set.seed(2)
+e_vbj3cs2f_forty_train <- sample(1:nrow(e_vbj3cs2f_forty_x), .8*nrow(e_vbj3cs2f_forty_x))
+e_vbj3cs2f_forty_test <- (-e_vbj3cs2f_forty_train)
+e_vbj3cs2f_forty_y.test <- e_vbj3cs2f_forty_y[e_vbj3cs2f_forty_test]
+
+grid <- 10^seq(-5, 5, length = 100)
+
+e_vbj3cs2f_forty_lasso.mod <- glmnet(e_vbj3cs2f_forty_x[e_vbj3cs2f_forty_train, ], e_vbj3cs2f_forty_y[e_vbj3cs2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+plot(e_vbj3cs2f_forty_lasso.mod)
+
+set.seed(1)
+e_vbj3cs2f_forty_cv.out <- cv.glmnet(e_vbj3cs2f_forty_x[e_vbj3cs2f_forty_train, ], e_vbj3cs2f_forty_y[e_vbj3cs2f_forty_train], alpha = 1)
+#plot(e_vbj3cs2f_forty_cv.out)
+e_vbj3cs2f_forty_bestlam <- e_vbj3cs2f_forty_cv.out$lambda.min
+#e_vbj3cs2f_forty_bestlam <- 1
+e_vbj3cs2f_forty_lasso.pred <- predict(e_vbj3cs2f_forty_lasso.mod, s = e_vbj3cs2f_forty_bestlam,
+    newx = e_vbj3cs2f_forty_x[e_vbj3cs2f_forty_test, ])
+mean((e_vbj3cs2f_forty_lasso.pred - e_vbj3cs2f_forty_y.test)^2)
+
+e_vbj3cs2f_forty_out <- glmnet(e_vbj3cs2f_forty_x, e_vbj3cs2f_forty_y, alpha = 1, lambda = e_vbj3cs2f_forty_bestlam )
+coef(e_vbj3cs2f_forty_out)
+e_vbj3cs2f_forty_lasso.coef <- predict(e_vbj3cs2f_forty_out, type = "coefficients",
+    s = e_vbj3cs2f_forty_bestlam)[1:(ncol(e_vertical_broad_jump_three_cone_shuttle_2_forty)+1), ]
+e_vbj3cs2f_forty_lasso.coef
+e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0]
+
+ggplot(e_vertical_broad_jump_three_cone_shuttle_2_forty[-e_vbj3cs2f_forty_train,] %>% mutate(pred = e_vbj3cs2f_forty_lasso.pred),
+       aes(x = pred, forty)) +
+  geom_point()
+
+
+
+e_vbj3cs2f_forty_x_scale <- model.matrix(scale(forty) ~ scale(three_cone), e_vertical_broad_jump_three_cone_shuttle_2_forty)
+e_vbj3cs2f_forty_y_scale <- (e_vertical_broad_jump_three_cone_shuttle_2_forty %>% mutate(forty = scale(forty)))$forty
+
+set.seed(2)
+e_vbj3cs2f_forty_train <- sample(1:nrow(e_vbj3cs2f_forty_x_scale), .8*nrow(e_vbj3cs2f_forty_x_scale))
+e_vbj3cs2f_forty_test <- (-e_vbj3cs2f_forty_train)
+e_vbj3cs2f_forty_y.test_scale <- e_vbj3cs2f_forty_y_scale[e_vbj3cs2f_forty_test]
+
+e_vbj3cs2f_forty_lasso.mod_scale <- glmnet(e_vbj3cs2f_forty_x_scale[e_vbj3cs2f_forty_train, ], e_vbj3cs2f_forty_y_scale[e_vbj3cs2f_forty_train], alpha = 1,
+    lambda = grid,intercept = TRUE ,standardize = TRUE)
+
+set.seed(1)
+e_vbj3cs2f_forty_cv.out_scale <- cv.glmnet(e_vbj3cs2f_forty_x_scale[e_vbj3cs2f_forty_train, ], e_vbj3cs2f_forty_y_scale[e_vbj3cs2f_forty_train], alpha = 1)
+#plot(e_vbj3cs2f_forty_cv.out)
+e_vbj3cs2f_forty_bestlam_scale <- e_vbj3cs2f_forty_cv.out_scale$lambda.min
+#e_vbj3cs2f_forty_bestlam <- 1
+e_vbj3cs2f_forty_lasso.pred_scale <- predict(e_vbj3cs2f_forty_lasso.mod_scale, s = e_vbj3cs2f_forty_bestlam_scale,
+    newx = e_vbj3cs2f_forty_x_scale[e_vbj3cs2f_forty_test, ])
+mean((e_vbj3cs2f_forty_lasso.pred_scale - e_vbj3cs2f_forty_y.test_scale)^2)
+```
+
+```{r}
+combinepredictedcollege <- e_update11 %>% mutate(forty = if_else(
+                           is.na(forty) & !is.na(vertical) & !is.na(broad_jump) & !is.na(three_cone) & !is.na(shuttle),
+                           e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][1] +
+                             e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][2] * vertical +
+                             e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][3] * broad_jump +
+                             e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][4] * shuttle +
+                             e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][5] * weight +
+                             e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][6] * Att +
+                             e_vbj3cs2f_forty_lasso.coef[e_vbj3cs2f_forty_lasso.coef != 0][7] * RushYds,
+                           forty
+                         )) 
+```

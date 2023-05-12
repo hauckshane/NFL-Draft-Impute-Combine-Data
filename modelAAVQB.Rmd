@@ -1,0 +1,1509 @@
+---
+title: "modelAV"
+output: html_document
+date: "2023-03-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+library(leaps)
+library(glmnet)
+```
+
+```{r}
+MTeamSpellings <- read_csv("~/March Madness/data/MTeamSpellings.csv")
+```
+
+```{r}
+fbrefespnshort <- read_csv("data/fbrefespnshort.csv") %>% select(-1) %>%
+  mutate(player = trimws(gsub("\\  ", " ", player))) %>%
+  mutate(GRADE = if_else(player == "robert griffin", 97, GRADE),
+         `PK(OVR)` = if_else(player == "robert griffin", '2(2)', `PK(OVR)`),
+         `OVR RANK` = if_else(player == "robert griffin", 2, `OVR RANK`))
+espn_player_sentiment_clean <- read_csv("data/espn_player_sentiment_clean.csv") %>% select(-1)
+cfbTeamOffenseStats <- read_csv("data/cfbTeamOffenseStats.csv") %>%
+  mutate(PctPlaysArePass = Pass_Att / Total_Plays,
+         PctPlaysAreRush = Rush_Att / Total_Plays,
+         PctYdsArePass = Pass_Yds / Total_Yds,
+         PctYdsAreRush = Rush_Yds / Total_Yds,
+         PctFDArePass = FD_Pass / FD_Total,
+         PctFDAreRush = FD_Rush / FD_Total,
+         PctTDArePass = Pass_TD / (Pass_TD + Rush_TD),
+         PctTDAreRush = Rush_TD / (Pass_TD + Rush_TD),
+         TurnoverRate = Turnovers / Total_Plays,
+         PtsPerPlay = Pts/ Total_Plays) %>%
+  select(-G) %>%
+  rename_with(~str_c("TeamOff_", .), .cols = c(Pts:PtsPerPlay)) %>%
+  mutate(School = tolower(School)) %>%
+  left_join(MTeamSpellings, by = c("School" = "TeamNameSpelling"))
+cfbTeamDefenseStats <- read_csv("data/cfbTeamDefenseStats.csv") %>%
+  mutate(PctPlaysArePass = Pass_Att / Total_Plays,
+         PctPlaysAreRush = Rush_Att / Total_Plays,
+         PctYdsArePass = Pass_Yds / Total_Yds,
+         PctYdsAreRush = Rush_Yds / Total_Yds,
+         PctFDArePass = FD_Pass / FD_Total,
+         PctFDAreRush = FD_Rush / FD_Total,
+         PctTDArePass = Pass_TD / (Pass_TD + Rush_TD),
+         PctTDAreRush = Rush_TD / (Pass_TD + Rush_TD),
+         TurnoverRate = Turnovers / Total_Plays,
+         PtsPerPlay = Pts/ Total_Plays) %>%
+  select(-G) %>%
+  rename_with(~str_c("TeamDef_", .), .cols = c(Pts:PtsPerPlay)) %>%
+  mutate(School = tolower(School)) %>%
+  left_join(MTeamSpellings, by = c("School" = "TeamNameSpelling"))
+cfbRatings <- read_csv("data/cfbRatings.csv") %>%
+  mutate(School = tolower(School)) %>%
+  left_join(MTeamSpellings, by = c("School" = "TeamNameSpelling")) %>%
+  select(-Conf)
+  
+weightedAVs <- read_csv("data/weightedAVs.csv") %>% select(-1) %>%
+  mutate(YearsInLeague = To - From + 1,
+         numberofpossiblegames = case_when(
+           To <= 2020 ~ YearsInLeague * 16,
+           To == 2021 ~ (YearsInLeague - 1) * 16 + 17,
+           To == 2022 ~ (YearsInLeague - 1) * 16 + 34)) %>%
+  filter(Pos == "QB") %>%
+  group_by(Player) %>%
+  mutate(numGamesStarted = sum(GS)) %>%
+  select(Year, Player, wAV, YearsInLeague, numberofpossiblegames, numGamesStarted) %>%
+  distinct(adjustedAV = sqrt((wAV * numGamesStarted) / sqrt(YearsInLeague * (numGamesStarted / numberofpossiblegames))))
+
+careerPlayoffs <- read_csv("data/careerPlayoffs.csv") %>%
+  group_by(Player) %>% 
+  mutate(firstTeam = Team[which.min(Season)]) %>%
+  filter(Team == firstTeam) %>%
+  rename(PGS = GS) %>% select(Player, Season, PGS) %>%
+  filter(PGS != 0) %>%
+  group_by(Player) %>%
+  summarise(totalPGS = sum(PGS),
+         YearsInPO = n())
+
+#CREATE AAV
+careerAvs <- read_csv("data/careerAvs.csv") %>%
+  group_by(Player) %>% 
+  mutate(firstTeam = Team[which.min(Season)]) %>%
+  filter(Team == firstTeam) %>%
+  mutate(meanAV = mean(AV),
+         YearsInLeague = max(Season) - min(Season) + 1,
+         numberofpossiblegames = case_when(
+           max(Season) <= 2020 ~ YearsInLeague * 16,
+           max(Season) == 2021 ~ (YearsInLeague - 1) * 16 + 17,
+           max(Season) == 2022 ~ (YearsInLeague - 1) * 16 + 34),
+         numberofpossiblegames = sum(numberofpossiblegames),
+         numGamesStarted = sum(GS)) %>%
+  filter(GS >= 1) %>%
+  mutate(
+         AVtester = AV * GS,
+         mAVT = mean(AVtester),
+         pctofgamestarted = numGamesStarted / numberofpossiblegames,
+         playedmorethan13games = if_else(GS > 13, 1, 0),
+         yearsAsStarter = sum(playedmorethan13games)) %>%
+  ungroup() %>%
+  mutate(maxyears = max(YearsInLeague)) %>%
+  left_join(careerPlayoffs) %>%
+  mutate(totalPGS = if_else(is.na(totalPGS), 0, totalPGS),
+         YearsInPO = if_else(is.na(YearsInPO), 0, as.numeric(YearsInPO))) %>%
+  group_by(Player) %>%
+  summarise(adjustedAV = if_else(yearsAsStarter != 0,
+    (meanAV * 2 + sqrt((yearsAsStarter + YearsInLeague) * pctofgamestarted)) + 
+             sqrt(numGamesStarted) + sqrt(mAVT * 2 + sqrt((yearsAsStarter + YearsInLeague) * pctofgamestarted)) +
+             (YearsInPO * (YearsInPO / (yearsAsStarter))) + 
+             (totalPGS / yearsAsStarter) * (YearsInPO / yearsAsStarter) + max(AV)
+             ,
+    meanAV * 2 + sqrt((YearsInLeague) * pctofgamestarted)) + 
+             sqrt(numGamesStarted) + sqrt(mAVT * 2  + sqrt((YearsInLeague) * pctofgamestarted)) +
+             (YearsInPO * (YearsInPO / (YearsInLeague))) + 
+             (totalPGS / YearsInLeague) * (YearsInPO / YearsInLeague)
+             + max(AV)) %>%
+  mutate(adjustedAV = if_else(is.nan(adjustedAV), 0, adjustedAV)) %>%
+  distinct() %>%
+  separate(Player, into = c("First", "Last"), sep = " ") %>% mutate(First = trimws(gsub("\\.", " ", First))) %>%
+  unite('Player', (First:Last), sep = " ")
+  
+```
+
+
+```{r}
+# NEW ARTICLE SENTIMENT ANALYSIS
+sentiment <- left_join(fbrefespnshort, espn_player_sentiment_clean %>% mutate(Player = tolower(Player)), by = c("player" = "Player")) %>%
+  filter(year > Year | (year == Year & Month < 4)) %>%
+  select(player, `Sentiment Score`, `Article Link`) %>%
+  group_by(player, `Article Link`) %>%
+  mutate(MeanStorySentiment = mean(`Sentiment Score`)) %>%
+  ungroup() %>% group_by(player) %>%
+  summarise(
+    MeanSentiment = mean(MeanStorySentiment),
+    PositiveStories = as.numeric(sum(MeanStorySentiment > 0)),
+    NegativeStories = as.numeric(sum(MeanStorySentiment < 0)),
+    NeutralStories = as.numeric(sum(MeanStorySentiment == 0)),
+    TotalStories = PositiveStories + NegativeStories + NeutralStories) %>%
+  ungroup() %>%
+  mutate(weighted_sentiment = (MeanSentiment * TotalStories) / sum(TotalStories),
+         weighted_neg_sentiment = (MeanSentiment * NegativeStories) / sum(NegativeStories),
+         weighted_pos_sentiment = (MeanSentiment * PositiveStories) / sum(PositiveStories),
+         normalized_sentiment = (weighted_sentiment - mean(weighted_sentiment)) / sd(weighted_sentiment),
+         normalized_neg_sentiment = (weighted_neg_sentiment - mean(weighted_neg_sentiment)) / sd(weighted_neg_sentiment),
+         normalized_pos_sentiment = (weighted_pos_sentiment - mean(weighted_pos_sentiment)) / sd(weighted_pos_sentiment),
+         mean_normalized_sentiment = (normalized_sentiment + normalized_neg_sentiment + normalized_pos_sentiment) / 3)
+```
+
+
+# 4 methods of combine predictions
+```{r}
+fillin_average <- read_csv("data/fillin_average.csv") %>% select(-1, -drafted, -AV, -position)
+
+heightweightcollegestats <- read_csv("data/heightweightcollegestats.csv") %>% select(-1)
+
+combinepredicted <- read_csv("data/combinepredicted.csv") %>% select(-1)
+
+combinepredictedcollege <- read_csv("data/combinepredictedcollege.csv") %>% select(-1)
+```
+
+```{r}
+collegestats <- heightweightcollegestats %>% select(-c(forty, vertical, broad_jump, three_cone, shuttle)) 
+```
+
+
+```{r}
+fillin_average_full <- left_join(fbrefespnshort, fillin_average) %>% 
+  select(-c(`DRAFTED BY`, `PK(OVR)`)) %>%
+  left_join(collegestats) %>% left_join(sentiment) %>%
+  mutate(across(.cols = c(31:38), ~replace(., is.na(.), 0)))  %>% select(-c(39:42)) %>%
+  mutate(
+    GRADE = if_else(is.na(GRADE), min(GRADE, na.rm = T) -1, GRADE),
+    `OVR RANK` = if_else(is.na(`OVR RANK`), max(`OVR RANK`, na.rm = TRUE) + 1, `OVR RANK`),
+    projRND = ceiling(`OVR RANK` / 32),
+    projRND = if_else(projRND > 7, 8, projRND),
+    projRND = as.factor(projRND)) %>%
+  group_by(year) %>%
+  mutate(yearRnk = rank(`OVR RANK`) ) %>%
+  ungroup() %>%
+  mutate(school = tolower(school)) %>%
+  left_join(MTeamSpellings, by = c("school" = "TeamNameSpelling")) %>%
+  left_join(cfbTeamOffenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbTeamDefenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  select(-School.x, - School.y) %>%
+  left_join(cfbRatings %>% select(-School) %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  select(-TeamID) %>%
+  left_join(careerAvs %>% mutate(Player = tolower(Player)), by = c("player" = "Player")) %>%
+  mutate(adjustedAV = if_else(is.na(adjustedAV), 0, adjustedAV),
+         AAV = adjustedAV) %>% select(-adjustedAV) %>%
+  left_join(fbrefespnshort %>% separate(`PK(OVR)`, into = c("PK", "OVR"), sep = "[()]") %>%
+  select(year, player, OVR) %>%
+  mutate(OVR = if_else(is.na(OVR), max(as.numeric(OVR), na.rm = T) + 10, as.numeric(OVR))))
+
+
+
+
+colorder <- colnames(fillin_average_full)
+
+heightweightcollegestats_full <- left_join(fbrefespnshort, heightweightcollegestats) %>% 
+  select(-c(`DRAFTED BY`, `PK(OVR)`)) %>% 
+  left_join(collegestats) %>%
+  left_join(sentiment) %>%
+  mutate(across(.cols = c(31:42), ~replace(., is.na(.), 0))) %>%
+  mutate(
+    GRADE = if_else(is.na(GRADE), min(GRADE, na.rm = T) - 1, GRADE),
+    `OVR RANK` = if_else(is.na(`OVR RANK`), max(`OVR RANK`, na.rm = TRUE) + 1, `OVR RANK`),
+    projRND = ceiling(`OVR RANK` / 32),
+    projRND = if_else(projRND > 7, 8, projRND),
+    projRND = as.factor(projRND)) %>%
+  group_by(year) %>%
+  mutate(yearRnk = rank(`OVR RANK`) ) %>%
+  ungroup() %>%
+  mutate(school = tolower(school)) %>%
+  left_join(MTeamSpellings, by = c("school" = "TeamNameSpelling")) %>%
+  left_join(cfbTeamOffenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbTeamDefenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbRatings %>% select(-School) %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(careerAvs %>% mutate(Player = tolower(Player)), by = c("player" = "Player")) %>%
+  mutate(adjustedAV = if_else(is.na(adjustedAV), 0, adjustedAV),
+         AAV = adjustedAV) %>% select(-adjustedAV) %>%
+  left_join(fbrefespnshort %>% separate(`PK(OVR)`, into = c("PK", "OVR"), sep = "[()]") %>%
+  select(year, player, OVR) %>%
+  mutate(OVR = if_else(is.na(OVR), max(as.numeric(OVR), na.rm = T) + 10, as.numeric(OVR)))) %>%
+  select(colorder) 
+
+combinepredicted_full <- left_join(fbrefespnshort, combinepredicted) %>% 
+  select(-c(`DRAFTED BY`, `PK(OVR)`)) %>%
+  left_join(collegestats) %>% left_join(sentiment) %>%
+  mutate(across(.cols = c(31:42), ~replace(., is.na(.), 0))) %>%
+  mutate(
+    GRADE = if_else(is.na(GRADE), min(GRADE, na.rm = T) -1, GRADE),
+    `OVR RANK` = if_else(is.na(`OVR RANK`), max(`OVR RANK`, na.rm = TRUE) + 1, `OVR RANK`),
+    projRND = ceiling(`OVR RANK` / 32),
+    projRND = if_else(projRND > 7, 8, projRND),
+    projRND = as.factor(projRND)) %>%
+  group_by(year) %>%
+  mutate(yearRnk = rank(`OVR RANK`) ) %>%
+  ungroup() %>%
+  mutate(ConfIndicator1 = as.numeric(ConfIndicator)) %>%
+  mutate(forty = if_else(is.na(forty), !!rlang::parse_expr(forty_formula_str), forty),
+         vertical = if_else(is.na(vertical), !!rlang::parse_expr(vertical_formula_str), vertical),
+         broad_jump = if_else(is.na(broad_jump), !!rlang::parse_expr(broad_jump_formula_str), broad_jump),
+         three_cone = if_else(is.na(three_cone), !!rlang::parse_expr(three_cone_formula_str), three_cone),
+         shuttle = if_else(is.na(shuttle), !!rlang::parse_expr(shuttle_formula_str), shuttle)) %>%
+  select(-ConfIndicator1)  %>%
+  mutate(school = tolower(school)) %>%
+  left_join(MTeamSpellings, by = c("school" = "TeamNameSpelling")) %>%
+  left_join(cfbTeamOffenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbTeamDefenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbRatings %>% select(-School) %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(careerAvs %>% mutate(Player = tolower(Player)), by = c("player" = "Player")) %>%
+  mutate(adjustedAV = if_else(is.na(adjustedAV), 0, adjustedAV),
+         AAV = adjustedAV) %>% select(-adjustedAV)  %>%
+  left_join(fbrefespnshort %>% separate(`PK(OVR)`, into = c("PK", "OVR"), sep = "[()]") %>%
+  select(year, player, OVR) %>%
+  mutate(OVR = if_else(is.na(OVR), max(as.numeric(OVR), na.rm = T) + 10, as.numeric(OVR)))) %>%
+  select(colorder) 
+
+combinepredictedcollege_full <- left_join(fbrefespnshort, combinepredictedcollege) %>% 
+  select(-c(`DRAFTED BY`, `PK(OVR)`)) %>% 
+  left_join(collegestats) %>%
+  left_join(sentiment) %>%
+  mutate(across(.cols = c(31:42), ~replace(., is.na(.), 0))) %>%
+  mutate(
+    GRADE = if_else(is.na(GRADE), min(GRADE, na.rm = T) - 1, GRADE),
+    `OVR RANK` = if_else(is.na(`OVR RANK`), max(`OVR RANK`, na.rm = TRUE) + 1, `OVR RANK`),
+    projRND = ceiling(`OVR RANK` / 32),
+    projRND = if_else(projRND > 7, 8, projRND),
+    projRND = as.factor(projRND)) %>%
+  group_by(year) %>%
+  mutate(yearRnk = rank(`OVR RANK`) ) %>%
+  ungroup() %>%
+  mutate(ConfIndicator1 = as.numeric(ConfIndicator)) %>%
+  mutate(forty = if_else(is.na(forty), !!rlang::parse_expr(forty_formula_str), forty),
+         vertical = if_else(is.na(vertical), !!rlang::parse_expr(vertical_formula_str), vertical),
+         broad_jump = if_else(is.na(broad_jump), !!rlang::parse_expr(broad_jump_formula_str), broad_jump),
+         three_cone = if_else(is.na(three_cone), !!rlang::parse_expr(three_cone_formula_str), three_cone),
+         shuttle = if_else(is.na(shuttle), !!rlang::parse_expr(shuttle_formula_str), shuttle)) %>%
+  select(-ConfIndicator1) %>%
+  mutate(school = tolower(school)) %>%
+  left_join(MTeamSpellings, by = c("school" = "TeamNameSpelling")) %>%
+  left_join(cfbTeamOffenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbTeamDefenseStats %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(cfbRatings %>% select(-School) %>% mutate(Year = Year + 1), by = c("TeamID", "year" = "Year")) %>%
+  left_join(careerAvs %>% mutate(Player = tolower(Player)), by = c("player" = "Player")) %>%
+  mutate(adjustedAV = if_else(is.na(adjustedAV), 0, adjustedAV),
+         AAV = adjustedAV) %>% select(-adjustedAV)  %>%
+  left_join(fbrefespnshort %>% separate(`PK(OVR)`, into = c("PK", "OVR"), sep = "[()]") %>%
+  select(year, player, OVR) %>%
+  mutate(OVR = if_else(is.na(OVR), max(as.numeric(OVR), na.rm = T) + 10, as.numeric(OVR)))) %>%
+  select(colorder) 
+```
+
+
+```{r}
+library(mgcv)
+library(gam)
+```
+
+```{r}
+ggplot(fillin_average_full, aes(x = GRADE, y = AAV)) +
+  geom_point()
+```
+
+
+
+
+```{r}
+FIA <- fillin_average_full %>% 
+  select(-c(player, position, school, year, age)) %>%
+  na.omit() %>%
+  select(AAV, everything()) %>% 
+  filter(AAV >= 0) %>%
+  mutate(Grade95 = as.factor(if_else(GRADE >= 95, 1, 0)),
+         Grade60 = as.factor(if_else(GRADE <= 60, 1, 0)),
+         top15pick = as.factor(if_else(OVR <= 15, 1, 0)),
+         top32pick = as.factor(if_else(OVR <= 32 & OVR > 15, 1, 0)),
+         Round = ceiling(OVR / 32),
+         RoundOver2 = as.factor(if_else(Round >= 2, 1,0)),
+         Round1 = as.factor(if_else(Round == 1, 1, 0)),
+         NotScouted = as.factor(if_else(GRADE == 30, 1, 0))) %>%
+  mutate(across(.cols = c(Cmp, Att, Yds, TD, Int, RushYds, RushAtt, RushTD), ~./G, .names = "{.col}_pg"),
+         TD_pa = TD / Att,
+         Int_pa = Int / Att,
+         Att_pg, Att / G) %>%
+  mutate(combinescore = (rank(forty) + rank(desc(vertical)) + rank(desc(broad_jump)) + rank(three_cone) + rank(shuttle))/5) %>%
+  mutate(across(.cols = c(forty:shuttle), ~rank(.),.names = "{.col}_rank")) %>%
+  mutate(across(.cols = c(forty:shuttle), ~scale(.), .names = "{.col}_scale")) %>% 
+  rename(OVR_RANK = `OVR RANK`)
+
+FIA <- FIA %>% select(AAV, GRADE, forty:shuttle, Rate, AYPA, OVR_RANK, Grade95, Grade60, top15pick, top32pick, Round1, OSRS, SRS, NotScouted, TD_pa, Int_pa, Pct,  weighted_pos_sentiment,TotalStories)
+
+set.seed(13)
+n <- nrow(FIA)
+n_test <- round(n * 0.4)
+n_train <- n - n_test
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  FIA_train <- FIA[train_indices, ]
+  FIA_test <- FIA[test_indices, ]
+  FIA_y.train <- FIA_train$AAV
+  FIA_y.test <- FIA_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  FIA_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = FIA_train, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_train_spline_basis <- predict(FIA_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_train_spline <- cbind(FIA_train[, -1], as.data.frame(FIA_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  FIA_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = FIA_test, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_test_spline_basis <- predict(FIA_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_test_spline <- cbind(FIA_test[, -1], as.data.frame(FIA_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  FIA_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = FIA_train, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_train_spline_basis2 <- predict(FIA_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_train_spline2 <- cbind(FIA_train[, -1], as.data.frame(FIA_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  FIA_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = FIA_test, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_test_spline_basis2 <- predict(FIA_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_test_spline2 <- cbind(FIA_test[, -1], as.data.frame(FIA_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  FIA_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = FIA_train, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_train_spline_basis3 <- predict(FIA_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_train_spline3 <- cbind(FIA_train[, -1], as.data.frame(FIA_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  FIA_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = FIA_test, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_test_spline_basis3 <- predict(FIA_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_test_spline3 <- cbind(FIA_test[, -1], as.data.frame(FIA_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  FIA_spline <- left_join(FIA, rbind(FIA_train_spline, FIA_test_spline)) %>% 
+    left_join(rbind(FIA_train_spline2, FIA_test_spline2)) %>%
+    left_join(rbind(FIA_train_spline3, FIA_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  FIA_x <- model.matrix(AAV ~ ., FIA_spline)[, -1]
+  
+  # Fit the Lasso model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  FIA_lasso_cv.out <- cv.glmnet(FIA_x[train_indices, ], FIA_y.train, alpha = 1, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  FIA_lasso_bestlam <- FIA_lasso_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  FIA_lasso_mod <- glmnet(FIA_x[train_indices, ], FIA_y.train, alpha = 1, lambda = FIA_lasso_bestlam)
+  FIA_lasso_pred <- pmax(predict(FIA_lasso_mod, newx = FIA_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(FIA_lasso_pred, 0) - FIA_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  FIA_lasso_coefs <- predict(FIA_lasso_cv.out, type = "coefficients", s = FIA_lasso_bestlam)[1:ncol(FIA_x) + 1, ]
+  FIA_lasso_selected_coefs <- FIA_lasso_coefs[FIA_lasso_coefs != 0]
+}
+
+# Compute the mean smse over the 10 test sets
+FIA_lasso_mean_smse <- mean(smse_list)
+
+FIA_lasso_AV_preds <- data.frame(actual = FIA_y.test, predicted = FIA_lasso_pred)
+
+# Create plot
+ggplot(data = FIA_lasso_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+set.seed(13)
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  FIA_train <- FIA[train_indices, ]
+  FIA_test <- FIA[test_indices, ]
+  FIA_y.train <- FIA_train$AAV
+  FIA_y.test <- FIA_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  FIA_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = FIA_train, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_train_spline_basis <- predict(FIA_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_train_spline <- cbind(FIA_train[, -1], as.data.frame(FIA_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  FIA_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = FIA_test, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_test_spline_basis <- predict(FIA_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_test_spline <- cbind(FIA_test[, -1], as.data.frame(FIA_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  FIA_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = FIA_train, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_train_spline_basis2 <- predict(FIA_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_train_spline2 <- cbind(FIA_train[, -1], as.data.frame(FIA_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  FIA_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = FIA_test, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_test_spline_basis2 <- predict(FIA_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_test_spline2 <- cbind(FIA_test[, -1], as.data.frame(FIA_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  FIA_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = FIA_train, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_train_spline_basis3 <- predict(FIA_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_train_spline3 <- cbind(FIA_train[, -1], as.data.frame(FIA_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  FIA_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = FIA_test, family = gaussian())
+  
+  # Generate spline basis functions
+  FIA_test_spline_basis3 <- predict(FIA_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the FIA training data
+  FIA_test_spline3 <- cbind(FIA_test[, -1], as.data.frame(FIA_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  FIA_spline <- left_join(FIA, rbind(FIA_train_spline, FIA_test_spline)) %>% 
+    left_join(rbind(FIA_train_spline2, FIA_test_spline2)) %>%
+    left_join(rbind(FIA_train_spline3, FIA_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  FIA_x <- model.matrix(AAV ~ ., FIA_spline)[, -1]
+  
+  # Fit the ridge model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  FIA_ridge_cv.out <- cv.glmnet(FIA_x[train_indices, ], FIA_y.train, alpha = 0, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  FIA_ridge_bestlam <- FIA_ridge_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  FIA_ridge_mod <- glmnet(FIA_x[train_indices, ], FIA_y.train, alpha = 0, lambda = FIA_ridge_bestlam)
+  FIA_ridge_pred <- pmax(predict(FIA_ridge_mod, newx = FIA_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(FIA_ridge_pred, 0) - FIA_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  FIA_ridge_coefs <- predict(FIA_ridge_cv.out, type = "coefficients", s = FIA_ridge_bestlam)[1:ncol(FIA_x) + 1, ]
+  FIA_ridge_selected_coefs <- FIA_ridge_coefs[FIA_ridge_coefs != 0]
+}
+  
+
+
+
+# Compute the mean smse over the 10 test sets
+FIA_ridge_mean_smse <- mean(smse_list)
+
+FIA_ridge_AV_preds <- data.frame(actual = FIA_y.test, predicted = FIA_ridge_pred)
+
+# Create plot
+ggplot(data = FIA_ridge_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+FIA_lasso_mean_smse
+FIA_ridge_mean_smse
+```
+
+```{r}
+HWCS <- heightweightcollegestats_full %>% 
+  select(-c(player, position, school, year, age)) %>%
+  na.omit() %>%
+  select(AAV, everything()) %>% 
+  filter(AAV >= 0) %>%
+  mutate(Grade95 = as.factor(if_else(GRADE >= 95, 1, 0)),
+         Grade60 = as.factor(if_else(GRADE <= 60, 1, 0)),
+         top15pick = as.factor(if_else(OVR <= 15, 1, 0)),
+         top32pick = as.factor(if_else(OVR <= 32 & OVR > 15, 1, 0)),
+         Round = ceiling(OVR / 32),
+         RoundOver2 = as.factor(if_else(Round >= 2, 1,0)),
+         Round1 = as.factor(if_else(Round == 1, 1, 0)),
+         NotScouted = as.factor(if_else(GRADE == 30, 1, 0))) %>%
+  mutate(across(.cols = c(Cmp, Att, Yds, TD, Int, RushYds, RushAtt, RushTD), ~./G, .names = "{.col}_pg"),
+         TD_pa = TD / Att,
+         Int_pa = Int / Att,
+         Att_pg, Att / G) %>%
+  mutate(combinescore = (rank(forty) + rank(desc(vertical)) + rank(desc(broad_jump)) + rank(three_cone) + rank(shuttle))/5) %>%
+  mutate(across(.cols = c(forty:shuttle), ~rank(.),.names = "{.col}_rank")) %>%
+  mutate(across(.cols = c(forty:shuttle), ~scale(.), .names = "{.col}_scale")) %>% 
+  rename(OVR_RANK = `OVR RANK`)
+
+HWCS <- HWCS %>% select(AAV, GRADE, forty:shuttle, Rate, AYPA, OVR_RANK, Grade95, Grade60, top15pick, top32pick, Round1, OSRS, SRS, NotScouted, TD_pa, Int_pa, Pct,  weighted_pos_sentiment,TotalStories)
+
+set.seed(13)
+n <- nrow(HWCS)
+n_test <- round(n * 0.4)
+n_train <- n - n_test
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  HWCS_train <- HWCS[train_indices, ]
+  HWCS_test <- HWCS[test_indices, ]
+  HWCS_y.train <- HWCS_train$AAV
+  HWCS_y.test <- HWCS_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  HWCS_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = HWCS_train, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_train_spline_basis <- predict(HWCS_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_train_spline <- cbind(HWCS_train[, -1], as.data.frame(HWCS_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  HWCS_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = HWCS_test, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_test_spline_basis <- predict(HWCS_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_test_spline <- cbind(HWCS_test[, -1], as.data.frame(HWCS_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  HWCS_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = HWCS_train, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_train_spline_basis2 <- predict(HWCS_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_train_spline2 <- cbind(HWCS_train[, -1], as.data.frame(HWCS_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  HWCS_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = HWCS_test, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_test_spline_basis2 <- predict(HWCS_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_test_spline2 <- cbind(HWCS_test[, -1], as.data.frame(HWCS_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  HWCS_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = HWCS_train, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_train_spline_basis3 <- predict(HWCS_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_train_spline3 <- cbind(HWCS_train[, -1], as.data.frame(HWCS_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  HWCS_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = HWCS_test, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_test_spline_basis3 <- predict(HWCS_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_test_spline3 <- cbind(HWCS_test[, -1], as.data.frame(HWCS_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  HWCS_spline <- left_join(HWCS, rbind(HWCS_train_spline, HWCS_test_spline)) %>% 
+    left_join(rbind(HWCS_train_spline2, HWCS_test_spline2)) %>%
+    left_join(rbind(HWCS_train_spline3, HWCS_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  HWCS_x <- model.matrix(AAV ~ ., HWCS_spline)[, -1]
+  
+  # Fit the Lasso model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  HWCS_lasso_cv.out <- cv.glmnet(HWCS_x[train_indices, ], HWCS_y.train, alpha = 1, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  HWCS_lasso_bestlam <- HWCS_lasso_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  HWCS_lasso_mod <- glmnet(HWCS_x[train_indices, ], HWCS_y.train, alpha = 1, lambda = HWCS_lasso_bestlam)
+  HWCS_lasso_pred <- pmax(predict(HWCS_lasso_mod, newx = HWCS_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(HWCS_lasso_pred, 0) - HWCS_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  HWCS_lasso_coefs <- predict(HWCS_lasso_cv.out, type = "coefficients", s = HWCS_lasso_bestlam)[1:ncol(HWCS_x) + 1, ]
+  HWCS_lasso_selected_coefs <- HWCS_lasso_coefs[HWCS_lasso_coefs != 0]
+}
+
+# Compute the mean smse over the 10 test sets
+HWCS_lasso_mean_smse <- mean(smse_list)
+
+HWCS_lasso_AV_preds <- data.frame(actual = HWCS_y.test, predicted = HWCS_lasso_pred)
+
+# Create plot
+ggplot(data = HWCS_lasso_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+set.seed(13)
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  HWCS_train <- HWCS[train_indices, ]
+  HWCS_test <- HWCS[test_indices, ]
+  HWCS_y.train <- HWCS_train$AAV
+  HWCS_y.test <- HWCS_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  HWCS_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = HWCS_train, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_train_spline_basis <- predict(HWCS_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_train_spline <- cbind(HWCS_train[, -1], as.data.frame(HWCS_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  HWCS_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = HWCS_test, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_test_spline_basis <- predict(HWCS_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_test_spline <- cbind(HWCS_test[, -1], as.data.frame(HWCS_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  HWCS_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = HWCS_train, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_train_spline_basis2 <- predict(HWCS_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_train_spline2 <- cbind(HWCS_train[, -1], as.data.frame(HWCS_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  HWCS_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = HWCS_test, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_test_spline_basis2 <- predict(HWCS_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_test_spline2 <- cbind(HWCS_test[, -1], as.data.frame(HWCS_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  HWCS_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = HWCS_train, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_train_spline_basis3 <- predict(HWCS_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_train_spline3 <- cbind(HWCS_train[, -1], as.data.frame(HWCS_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  HWCS_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = HWCS_test, family = gaussian())
+  
+  # Generate spline basis functions
+  HWCS_test_spline_basis3 <- predict(HWCS_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the HWCS training data
+  HWCS_test_spline3 <- cbind(HWCS_test[, -1], as.data.frame(HWCS_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  HWCS_spline <- left_join(HWCS, rbind(HWCS_train_spline, HWCS_test_spline)) %>% 
+    left_join(rbind(HWCS_train_spline2, HWCS_test_spline2)) %>%
+    left_join(rbind(HWCS_train_spline3, HWCS_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  HWCS_x <- model.matrix(AAV ~ ., HWCS_spline)[, -1]
+  
+  # Fit the ridge model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  HWCS_ridge_cv.out <- cv.glmnet(HWCS_x[train_indices, ], HWCS_y.train, alpha = 0, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  HWCS_ridge_bestlam <- HWCS_ridge_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  HWCS_ridge_mod <- glmnet(HWCS_x[train_indices, ], HWCS_y.train, alpha = 0, lambda = HWCS_ridge_bestlam)
+  HWCS_ridge_pred <- pmax(predict(HWCS_ridge_mod, newx = HWCS_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(HWCS_ridge_pred, 0) - HWCS_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  HWCS_ridge_coefs <- predict(HWCS_ridge_cv.out, type = "coefficients", s = HWCS_ridge_bestlam)[1:ncol(HWCS_x) + 1, ]
+  HWCS_ridge_selected_coefs <- HWCS_ridge_coefs[HWCS_ridge_coefs != 0]
+}
+  
+
+
+
+# Compute the mean smse over the 10 test sets
+HWCS_ridge_mean_smse <- mean(smse_list)
+
+HWCS_ridge_AV_preds <- data.frame(actual = HWCS_y.test, predicted = HWCS_ridge_pred)
+
+# Create plot
+ggplot(data = HWCS_ridge_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+HWCS_lasso_mean_smse
+HWCS_ridge_mean_smse
+```
+
+```{r}
+NFLC <- combinepredicted_full %>% 
+  select(-c(player, position, school, year, age)) %>%
+  na.omit() %>%
+  select(AAV, everything()) %>% 
+  filter(AAV >= 0) %>%
+  mutate(Grade95 = as.factor(if_else(GRADE >= 95, 1, 0)),
+         Grade60 = as.factor(if_else(GRADE <= 60, 1, 0)),
+         top15pick = as.factor(if_else(OVR <= 15, 1, 0)),
+         top32pick = as.factor(if_else(OVR <= 32 & OVR > 15, 1, 0)),
+         Round = ceiling(OVR / 32),
+         RoundOver2 = as.factor(if_else(Round >= 2, 1,0)),
+         Round1 = as.factor(if_else(Round == 1, 1, 0)),
+         NotScouted = as.factor(if_else(GRADE == 30, 1, 0))) %>%
+  mutate(across(.cols = c(Cmp, Att, Yds, TD, Int, RushYds, RushAtt, RushTD), ~./G, .names = "{.col}_pg"),
+         TD_pa = TD / Att,
+         Int_pa = Int / Att,
+         Att_pg, Att / G) %>%
+  mutate(combinescore = (rank(forty) + rank(desc(vertical)) + rank(desc(broad_jump)) + rank(three_cone) + rank(shuttle))/5) %>%
+  mutate(across(.cols = c(forty:shuttle), ~rank(.),.names = "{.col}_rank")) %>%
+  mutate(across(.cols = c(forty:shuttle), ~scale(.), .names = "{.col}_scale")) %>% 
+  rename(OVR_RANK = `OVR RANK`)
+
+NFLC <- NFLC %>% select(AAV, GRADE, forty:shuttle, Rate, AYPA, OVR_RANK, Grade95, Grade60, top15pick, top32pick, Round1, OSRS, SRS, NotScouted, TD_pa, Int_pa, Pct,  weighted_pos_sentiment,TotalStories)
+
+set.seed(13)
+n <- nrow(NFLC)
+n_test <- round(n * 0.4)
+n_train <- n - n_test
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  NFLC_train <- NFLC[train_indices, ]
+  NFLC_test <- NFLC[test_indices, ]
+  NFLC_y.train <- NFLC_train$AAV
+  NFLC_y.test <- NFLC_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  NFLC_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = NFLC_train, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_train_spline_basis <- predict(NFLC_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_train_spline <- cbind(NFLC_train[, -1], as.data.frame(NFLC_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  NFLC_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = NFLC_test, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_test_spline_basis <- predict(NFLC_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_test_spline <- cbind(NFLC_test[, -1], as.data.frame(NFLC_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  NFLC_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = NFLC_train, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_train_spline_basis2 <- predict(NFLC_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_train_spline2 <- cbind(NFLC_train[, -1], as.data.frame(NFLC_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  NFLC_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = NFLC_test, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_test_spline_basis2 <- predict(NFLC_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_test_spline2 <- cbind(NFLC_test[, -1], as.data.frame(NFLC_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  NFLC_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = NFLC_train, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_train_spline_basis3 <- predict(NFLC_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_train_spline3 <- cbind(NFLC_train[, -1], as.data.frame(NFLC_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  NFLC_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = NFLC_test, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_test_spline_basis3 <- predict(NFLC_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_test_spline3 <- cbind(NFLC_test[, -1], as.data.frame(NFLC_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  NFLC_spline <- left_join(NFLC, rbind(NFLC_train_spline, NFLC_test_spline)) %>% 
+    left_join(rbind(NFLC_train_spline2, NFLC_test_spline2)) %>%
+    left_join(rbind(NFLC_train_spline3, NFLC_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  NFLC_x <- model.matrix(AAV ~ ., NFLC_spline)[, -1]
+  
+  # Fit the Lasso model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  NFLC_lasso_cv.out <- cv.glmnet(NFLC_x[train_indices, ], NFLC_y.train, alpha = 1, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  NFLC_lasso_bestlam <- NFLC_lasso_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  NFLC_lasso_mod <- glmnet(NFLC_x[train_indices, ], NFLC_y.train, alpha = 1, lambda = NFLC_lasso_bestlam)
+  NFLC_lasso_pred <- pmax(predict(NFLC_lasso_mod, newx = NFLC_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(NFLC_lasso_pred, 0) - NFLC_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  NFLC_lasso_coefs <- predict(NFLC_lasso_cv.out, type = "coefficients", s = NFLC_lasso_bestlam)[1:ncol(NFLC_x) + 1, ]
+  NFLC_lasso_selected_coefs <- NFLC_lasso_coefs[NFLC_lasso_coefs != 0]
+}
+
+# Compute the mean smse over the 10 test sets
+NFLC_lasso_mean_smse <- mean(smse_list)
+
+NFLC_lasso_AV_preds <- data.frame(actual = NFLC_y.test, predicted = NFLC_lasso_pred)
+
+# Create plot
+ggplot(data = NFLC_lasso_AV_preds, aes(x = actual, y = s0)) +
+  geom_point(size = 2) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linewidth = 2) +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAAV (NFLC Lasso)")
+
+set.seed(13)
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  NFLC_train <- NFLC[train_indices, ]
+  NFLC_test <- NFLC[test_indices, ]
+  NFLC_y.train <- NFLC_train$AAV
+  NFLC_y.test <- NFLC_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  NFLC_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = NFLC_train, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_train_spline_basis <- predict(NFLC_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_train_spline <- cbind(NFLC_train[, -1], as.data.frame(NFLC_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  NFLC_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = NFLC_test, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_test_spline_basis <- predict(NFLC_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_test_spline <- cbind(NFLC_test[, -1], as.data.frame(NFLC_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  NFLC_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = NFLC_train, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_train_spline_basis2 <- predict(NFLC_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_train_spline2 <- cbind(NFLC_train[, -1], as.data.frame(NFLC_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  NFLC_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = NFLC_test, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_test_spline_basis2 <- predict(NFLC_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_test_spline2 <- cbind(NFLC_test[, -1], as.data.frame(NFLC_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  NFLC_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = NFLC_train, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_train_spline_basis3 <- predict(NFLC_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_train_spline3 <- cbind(NFLC_train[, -1], as.data.frame(NFLC_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  NFLC_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = NFLC_test, family = gaussian())
+  
+  # Generate spline basis functions
+  NFLC_test_spline_basis3 <- predict(NFLC_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the NFLC training data
+  NFLC_test_spline3 <- cbind(NFLC_test[, -1], as.data.frame(NFLC_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  NFLC_spline <- left_join(NFLC, rbind(NFLC_train_spline, NFLC_test_spline)) %>% 
+    left_join(rbind(NFLC_train_spline2, NFLC_test_spline2)) %>%
+    left_join(rbind(NFLC_train_spline3, NFLC_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  NFLC_x <- model.matrix(AAV ~ ., NFLC_spline)[, -1]
+  
+  # Fit the ridge model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  NFLC_ridge_cv.out <- cv.glmnet(NFLC_x[train_indices, ], NFLC_y.train, alpha = 0, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  NFLC_ridge_bestlam <- NFLC_ridge_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  NFLC_ridge_mod <- glmnet(NFLC_x[train_indices, ], NFLC_y.train, alpha = 0, lambda = NFLC_ridge_bestlam)
+  NFLC_ridge_pred <- pmax(predict(NFLC_ridge_mod, newx = NFLC_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(NFLC_ridge_pred, 0) - NFLC_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  NFLC_ridge_coefs <- predict(NFLC_ridge_cv.out, type = "coefficients", s = NFLC_ridge_bestlam)[1:ncol(NFLC_x) + 1, ]
+  NFLC_ridge_selected_coefs <- NFLC_ridge_coefs[NFLC_ridge_coefs != 0]
+}
+  
+
+
+
+# Compute the mean smse over the 10 test sets
+NFLC_ridge_mean_smse <- mean(smse_list)
+
+NFLC_ridge_AV_preds <- data.frame(actual = NFLC_y.test, predicted = NFLC_ridge_pred)
+
+# Create plot
+ggplot(data = NFLC_ridge_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+NFLC_lasso_mean_smse
+NFLC_ridge_mean_smse
+```
+
+```{r}
+ALL <- combinepredictedcollege_full %>% 
+  select(-c(player, position, school, year, age)) %>%
+  na.omit() %>%
+  select(AAV, everything()) %>% 
+  filter(AAV >= 0) %>%
+  mutate(Grade95 = as.factor(if_else(GRADE >= 95, 1, 0)),
+         Grade60 = as.factor(if_else(GRADE <= 60, 1, 0)),
+         top15pick = as.factor(if_else(OVR <= 15, 1, 0)),
+         top32pick = as.factor(if_else(OVR <= 32 & OVR > 15, 1, 0)),
+         Round = ceiling(OVR / 32),
+         RoundOver2 = as.factor(if_else(Round >= 2, 1,0)),
+         Round1 = as.factor(if_else(Round == 1, 1, 0)),
+         NotScouted = as.factor(if_else(GRADE == 30, 1, 0))) %>%
+  mutate(across(.cols = c(Cmp, Att, Yds, TD, Int, RushYds, RushAtt, RushTD), ~./G, .names = "{.col}_pg"),
+         TD_pa = TD / Att,
+         Int_pa = Int / Att,
+         Att_pg, Att / G) %>%
+  mutate(combinescore = (rank(forty) + rank(desc(vertical)) + rank(desc(broad_jump)) + rank(three_cone) + rank(shuttle))/5) %>%
+  mutate(across(.cols = c(forty:shuttle), ~rank(.),.names = "{.col}_rank")) %>%
+  mutate(across(.cols = c(forty:shuttle), ~scale(.), .names = "{.col}_scale")) %>% 
+  rename(OVR_RANK = `OVR RANK`)
+
+ALL <- ALL %>% select(AAV, GRADE, forty:shuttle, Rate, AYPA, OVR_RANK, Grade95, Grade60, top15pick, top32pick, Round1, OSRS, SRS, NotScouted, TD_pa, Int_pa, Pct, TotalStories, weighted_pos_sentiment)
+
+set.seed(13)
+n <- nrow(ALL)
+n_test <- round(n * 0.4)
+n_train <- n - n_test
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  ALL_train <- ALL[train_indices, ]
+  ALL_test <- ALL[test_indices, ]
+  ALL_y.train <- ALL_train$AAV
+  ALL_y.test <- ALL_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  ALL_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = ALL_train, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_train_spline_basis <- predict(ALL_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_train_spline <- cbind(ALL_train[, -1], as.data.frame(ALL_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  ALL_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = ALL_test, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_test_spline_basis <- predict(ALL_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_test_spline <- cbind(ALL_test[, -1], as.data.frame(ALL_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  ALL_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = ALL_train, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_train_spline_basis2 <- predict(ALL_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_train_spline2 <- cbind(ALL_train[, -1], as.data.frame(ALL_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  ALL_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = ALL_test, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_test_spline_basis2 <- predict(ALL_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_test_spline2 <- cbind(ALL_test[, -1], as.data.frame(ALL_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  ALL_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = ALL_train, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_train_spline_basis3 <- predict(ALL_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_train_spline3 <- cbind(ALL_train[, -1], as.data.frame(ALL_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  ALL_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = ALL_test, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_test_spline_basis3 <- predict(ALL_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_test_spline3 <- cbind(ALL_test[, -1], as.data.frame(ALL_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  ALL_spline <- left_join(ALL, rbind(ALL_train_spline, ALL_test_spline)) %>% 
+    left_join(rbind(ALL_train_spline2, ALL_test_spline2)) %>%
+    left_join(rbind(ALL_train_spline3, ALL_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  ALL_x <- model.matrix(AAV ~ ., ALL_spline)[, -1]
+  
+  # Fit the Lasso model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  ALL_lasso_cv.out <- cv.glmnet(ALL_x[train_indices, ], ALL_y.train, alpha = 1, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  ALL_lasso_bestlam <- ALL_lasso_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  ALL_lasso_mod <- glmnet(ALL_x[train_indices, ], ALL_y.train, alpha = 1, lambda = ALL_lasso_bestlam)
+  ALL_lasso_pred <- pmax(predict(ALL_lasso_mod, newx = ALL_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(ALL_lasso_pred, 0) - ALL_y.test)^2))
+  
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  ALL_lasso_coefs <- predict(ALL_lasso_cv.out, type = "coefficients", s = ALL_lasso_bestlam)[1:ncol(ALL_x) + 1, ]
+  ALL_lasso_selected_coefs <- ALL_lasso_coefs[ALL_lasso_coefs != 0]
+}
+
+# Compute the mean smse over the 10 test sets
+ALL_lasso_mean_smse <- mean(smse_list)
+
+ALL_lasso_AV_preds <- data.frame(actual = ALL_y.test, predicted = ALL_lasso_pred)
+
+# Create plot
+ggplot(data = ALL_lasso_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+set.seed(13)
+smse_list <- numeric(10)
+i <- 0
+
+while (i <= 10) {
+  # Split data into train and test sets
+  train_indices <- sample(1:n, n_train)
+  test_indices <- setdiff(1:n, train_indices)
+  ALL_train <- ALL[train_indices, ]
+  ALL_test <- ALL[test_indices, ]
+  ALL_y.train <- ALL_train$AAV
+  ALL_y.test <- ALL_test$AAV
+  
+  # Refit the model using the optimal lambda value
+  ALL_train_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) +
+                                           s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                          data = ALL_train, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_train_spline_basis <- predict(ALL_train_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_train_spline <- cbind(ALL_train[, -1], as.data.frame(ALL_train_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  ALL_test_gam_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) + s(Rate) + s(SRS) + s(OSRS) + s(AYPA) + 
+                                          s(TD_pa) + s(Pct) + s(Int_pa)")), 
+                         data = ALL_test, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_test_spline_basis <- predict(ALL_test_gam_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_test_spline <- cbind(ALL_test[, -1], as.data.frame(ALL_test_spline_basis))
+  
+  # Refit the model using the optimal lambda value
+  ALL_train_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                            s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                          data = ALL_train, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_train_spline_basis2 <- predict(ALL_train_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_train_spline2 <- cbind(ALL_train[, -1], as.data.frame(ALL_train_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  ALL_test_gam2_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(forty) + s(vertical) + s(broad_jump) + s(three_cone) + s(shuttle)")), 
+                         data = ALL_test, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_test_spline_basis2 <- predict(ALL_test_gam2_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_test_spline2 <- cbind(ALL_test[, -1], as.data.frame(ALL_test_spline_basis2)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  ALL_train_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                             s(weighted_pos_sentiment) + s(TotalStories)")), 
+                          data = ALL_train, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_train_spline_basis3 <- predict(ALL_train_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_train_spline3 <- cbind(ALL_train[, -1], as.data.frame(ALL_train_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Refit the model using the optimal lambda value
+  ALL_test_gam3_cv <- gam(as.formula(paste("AAV ~ s(GRADE) + s(OVR_RANK) +
+                                           s(weighted_pos_sentiment) + s(TotalStories)")), 
+                         data = ALL_test, family = gaussian())
+  
+  # Generate spline basis functions
+  ALL_test_spline_basis3 <- predict(ALL_test_gam3_cv, type = "terms")
+  
+  # Add the spline basis functions as new columns to the ALL training data
+  ALL_test_spline3 <- cbind(ALL_test[, -1], as.data.frame(ALL_test_spline_basis3)) %>% select(-`s(GRADE)`, - `s(OVR_RANK)`)
+  
+  # Merge the training and test data sets
+  ALL_spline <- left_join(ALL, rbind(ALL_train_spline, ALL_test_spline)) %>% 
+    left_join(rbind(ALL_train_spline2, ALL_test_spline2)) %>%
+    left_join(rbind(ALL_train_spline3, ALL_test_spline3)) %>%
+    select(-GRADE, -OVR_RANK, -Rate, -SRS, - OSRS, -AYPA, -TD_pa, -Int_pa, -Pct,
+           -forty, -vertical, -broad_jump, - three_cone, -shuttle,
+           -weighted_pos_sentiment,  -TotalStories)
+  
+  # Extract the training and test sets for glmnet
+  ALL_x <- model.matrix(AAV ~ ., ALL_spline)[, -1]
+  
+  # Fit the ridge model using cross-validation to select the optimal lambda value
+  grid <- 10^seq(10, -2, length = 125)
+  ALL_ridge_cv.out <- cv.glmnet(ALL_x[train_indices, ], ALL_y.train, alpha = 0, lambda = grid,
+                                standardize = TRUE, intercept = TRUE)
+  ALL_ridge_bestlam <- ALL_ridge_cv.out$lambda.min
+  
+  # Compute the smse on the test set
+  ALL_ridge_mod <- glmnet(ALL_x[train_indices, ], ALL_y.train, alpha = 0, lambda = ALL_ridge_bestlam)
+  ALL_ridge_pred <- pmax(predict(ALL_ridge_mod, newx = ALL_x[test_indices, ]),0)
+  smse <- sqrt(mean((pmax(ALL_ridge_pred, 0) - ALL_y.test)^2))
+  if (smse < 80) {
+    smse_list[i] <- smse
+    i <- i + 1
+  }
+  
+  ALL_ridge_coefs <- predict(ALL_ridge_cv.out, type = "coefficients", s = ALL_ridge_bestlam)[1:ncol(ALL_x) + 1, ]
+  ALL_ridge_selected_coefs <- ALL_ridge_coefs[ALL_ridge_coefs != 0]
+}
+
+
+# Compute the mean smse over the 10 test sets
+ALL_ridge_mean_smse <- mean(smse_list)
+
+ALL_ridge_AV_preds <- data.frame(actual = ALL_y.test, predicted = ALL_ridge_pred)
+
+# Create plot
+ggplot(data = ALL_ridge_AV_preds, aes(x = actual, y = s0)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  xlab("Actual AAV") +
+  ylab("Predicted AAV") +
+  ggtitle("Actual AAAV vs. Predicted AAV")
+
+ALL_lasso_mean_smse
+ALL_ridge_mean_smse
+```
+
+```{r}
+# 1
+FIA_lasso_mean_smse
+FIA_ridge_mean_smse
+
+# 2
+HWCS_lasso_mean_smse
+HWCS_ridge_mean_smse
+
+# 3
+NFLC_lasso_mean_smse
+NFLC_ridge_mean_smse
+
+# 4
+ALL_lasso_mean_smse
+ALL_ridge_mean_smse
+```
+
+```{r}
+ggplot(fillin_average_full, aes(x = Rate, y = AAV)) +
+  geom_point()
+```
+
+
+```{r}
+cormatirx <- cor(fillin_average_full[,unlist(lapply(fillin_average_full, is.numeric))])
+cor_order <- sort(cormatirx[, "AV"], decreasing = TRUE)
+```
+
+```{r}
+# Set up a sequence of potential span values to test
+span_seq <- seq(0.1, 0.95, by = 0.01)
+
+# Initialize a vector to store the cross-validation results
+cv_results <- rep(NA, length(span_seq))
+
+# Use 10-fold cross-validation to select the optimal span
+for (i in seq_along(span_seq)) {
+  span <- span_seq[i]
+  loess_model <- loess(AAV ~ OVR, fillin_average_full %>% mutate(OVR = if_else(player == "ben roethlisberger", 11, OVR)) %>%
+  mutate(OVR = if_else(player == "jason campbell", 25, OVR),
+         OVR = if_else(player == "alex smith", 1, OVR),
+         OVR = if_else(player == "jamarcus russell", 1, OVR)), 
+  span = span)
+  cv_results[i] <- mean((fillin_average_full$AAV - predict(loess_model))^2, na.rm = TRUE)
+}
+
+# Find the optimal span value
+optimal_span <- span_seq[which.min(cv_results)]
+
+# Print the optimal span value
+cat("Optimal span value:", optimal_span, "\n")
+```
+
+
+```{r}
+loess(AAV ~ OVR, fillin_average_full %>% mutate(OVR = if_else(player == "ben roethlisberger", 11, OVR)) %>%
+  mutate(OVR = if_else(player == "jason campbell", 25, OVR),
+         OVR = if_else(player == "alex smith", 1, OVR),
+         OVR = if_else(player == "jamarcus russell", 1, OVR)), span = optimal_span)
+
+
+ggplot(fillin_average_full %>% mutate(OVR = if_else(player == "ben roethlisberger", 11, OVR)) %>%
+  mutate(OVR = if_else(player == "jason campbell", 25, OVR),
+         OVR = if_else(player == "alex smith", 1, OVR),
+         OVR = if_else(player == "jamarcus russell", 1, OVR)), aes(x = OVR, y = AAV)) +
+  geom_point(size = 2) + 
+  geom_smooth(method = "loess", se = FALSE, color = "red", linewidth = 2, span = optimal_span) + 
+  labs(x = "OVERALL PICK NUMBER", y = "AAV", title = "NFL LOESS of QBs") +
+  theme(axis.title = element_text(size = 14),
+        plot.title = element_text(size = 16, face = "bold"))
+```
+
